@@ -6,7 +6,7 @@ services:
     container_name: ada-backend
     environment:
       - STORAGE_DIR=/data
-      - MAX_UPLOAD_MB=50
+      - MAX_UPLOAD_MB=80
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     volumes:
       - pdf_storage:/data

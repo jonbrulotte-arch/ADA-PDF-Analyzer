@@ -131,7 +131,7 @@ export default function HomePage() {
                 {dragging ? "Drop your PDFs here" : "Drag & drop one or more PDFs"}
               </p>
               <p className="text-sm text-slate-400 mt-1">
-                or <span className="text-indigo-600 font-medium">click to browse</span> · up to 10 files · 50 MB each
+                or <span className="text-indigo-600 font-medium">click to browse</span> · up to 10 files · 80 MB each
               </p>
             </div>
           </div>
