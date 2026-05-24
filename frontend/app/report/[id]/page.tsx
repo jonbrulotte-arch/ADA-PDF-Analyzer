@@ -455,12 +455,21 @@ function CheckItem({
                         <p className="text-sm text-slate-700">{existingAck}</p>
                       )}
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setAckNote(existingAck === "__validated__" ? "" : existingAck); setEditingAck(true); }}
-                      className="text-xs text-emerald-600 hover:text-emerald-800 underline underline-offset-2 flex-shrink-0"
-                    >
-                      Edit
-                    </button>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setAckNote(existingAck === "__validated__" ? "" : existingAck); setEditingAck(true); }}
+                        className="text-xs text-emerald-600 hover:text-emerald-800 underline underline-offset-2"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onAcknowledge(check.id, ""); }}
+                        className="text-xs text-slate-400 hover:text-red-500 underline underline-offset-2"
+                        title="Remove validation"
+                      >
+                        Undo
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -673,7 +682,14 @@ export default function ReportPage() {
   }, []);
 
   const handleAcknowledge = useCallback((checkId: string, note: string) => {
-    setAcknowledgments((prev) => ({ ...prev, [checkId]: note }));
+    setAcknowledgments((prev) => {
+      if (!note) {
+        const next = { ...prev };
+        delete next[checkId];
+        return next;
+      }
+      return { ...prev, [checkId]: note };
+    });
   }, []);
 
   const handleFindingValueChange = useCallback((fieldKey: string, value: string) => {
