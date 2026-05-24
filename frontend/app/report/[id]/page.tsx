@@ -634,22 +634,6 @@ export default function ReportPage() {
   }, [sessionId, approvedIds, customAltTexts, acknowledgments, findingValues]);
 
   // ---------------------------------------------------------------------------
-  // Sync effective score back to the project revision whenever it changes
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    if (!initialLoadDone.current || !report?.project_id) return;
-    const timer = setTimeout(() => {
-      patchRevision(report.project_id, sessionId, {
-        score: effectiveScore,
-        grade: effectiveGrade,
-      }).catch(() => {});
-    }, 1000);
-    return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveScore]);
-
-  // ---------------------------------------------------------------------------
   // Page unload save via sendBeacon
   // ---------------------------------------------------------------------------
 
@@ -734,6 +718,20 @@ export default function ReportPage() {
 
   const effectiveGrade = effectiveScore >= 90 ? "A" : effectiveScore >= 75 ? "B" : effectiveScore >= 55 ? "C" : effectiveScore >= 35 ? "D" : "F";
   const hasManualValidations = report ? report.checks.some((c) => c.status === "warning" && acknowledgments[c.id]) : false;
+
+  // Sync effective score back to the project revision whenever it changes
+  // (must be after effectiveScore/effectiveGrade declarations)
+  useEffect(() => {
+    if (!initialLoadDone.current || !report?.project_id) return;
+    const timer = setTimeout(() => {
+      patchRevision(report.project_id, sessionId, {
+        score: effectiveScore,
+        grade: effectiveGrade,
+      }).catch(() => {});
+    }, 1000);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveScore]);
 
   const approveAll = () => {
     const ids = new Set(autoFixableChecks.map((c) => c.fix!.id));
