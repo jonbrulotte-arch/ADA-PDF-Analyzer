@@ -25,6 +25,18 @@ class FixType(str, Enum):
     PDFUA_IDENTIFIER = "pdfua_identifier"
 
 
+class Finding(BaseModel):
+    id: str
+    page: Optional[int] = None          # 1-indexed page number
+    element_type: str                   # "image","link","form_field","heading","table","font","document","text"
+    element_label: str                  # "Image #3", "Link: 'click here'", "Document Title"
+    infringing_text: Optional[str] = None  # the problematic content
+    recommended_fix: str
+    editor: str = "none"               # "none" | "text" | "textarea"
+    field_key: Optional[str] = None    # key for storing user value in finding_values
+    placeholder: Optional[str] = None  # editor placeholder/default
+
+
 class FixAction(BaseModel):
     id: str
     description: str
@@ -44,6 +56,7 @@ class AccessibilityCheck(BaseModel):
     description: str
     details: List[str] = []
     fix: Optional[FixAction] = None
+    findings: List[Finding] = []
 
 
 class ScoreSummary(BaseModel):
@@ -78,6 +91,7 @@ class RemediateRequest(BaseModel):
     approved_fix_ids: List[str]
     custom_alt_texts: Dict[str, str] = {}   # figure_index_str → alt text (overrides placeholders)
     acknowledgments: Dict[str, str] = {}    # check_id → note (stored in session state)
+    finding_values: Dict[str, str] = {}   # field_key → user value (overrides fix_data defaults)
 
 
 class RemediateResponse(BaseModel):
@@ -95,6 +109,7 @@ class SessionState(BaseModel):
     score_before: Optional[int] = None
     score_after: Optional[int] = None
     updated_at: str = ""
+    finding_values: Dict[str, str] = {}   # field_key → user-edited value
 
 
 class AppSettings(BaseModel):
@@ -152,3 +167,4 @@ class PatchStateRequest(BaseModel):
     approved_fix_ids: Optional[List[str]] = None
     custom_alt_texts: Optional[Dict[str, str]] = None
     acknowledgments: Optional[Dict[str, str]] = None
+    finding_values: Optional[Dict[str, str]] = None

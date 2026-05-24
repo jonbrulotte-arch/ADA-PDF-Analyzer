@@ -13,6 +13,7 @@ from .models import (
     AccessibilityCheck,
     AccessibilityReport,
     CheckStatus,
+    Finding,
     FixAction,
     FixType,
     ScoreSummary,
@@ -34,6 +35,7 @@ def _check(
     wcag: str | None = None,
     pdf_ua: str | None = None,
     fix: FixAction | None = None,
+    findings: list[Finding] | None = None,
 ) -> AccessibilityCheck:
     return AccessibilityCheck(
         id=str(uuid.uuid4()),
@@ -46,6 +48,30 @@ def _check(
         wcag_criterion=wcag,
         pdf_ua_criterion=pdf_ua,
         fix=fix,
+        findings=findings or [],
+    )
+
+
+def _finding(
+    element_type: str,
+    element_label: str,
+    recommended_fix: str,
+    page: int | None = None,
+    infringing_text: str | None = None,
+    editor: str = "none",
+    field_key: str | None = None,
+    placeholder: str | None = None,
+) -> Finding:
+    return Finding(
+        id=str(uuid.uuid4()),
+        page=page,
+        element_type=element_type,
+        element_label=element_label,
+        infringing_text=infringing_text,
+        recommended_fix=recommended_fix,
+        editor=editor,
+        field_key=field_key,
+        placeholder=placeholder,
     )
 
 
@@ -121,6 +147,12 @@ def _traverse_all(node, visited: set | None = None):
 
 def _check_encryption(pdf: pikepdf.Pdf) -> AccessibilityCheck:
     if pdf.is_encrypted:
+        findings = [_finding(
+            "document",
+            "PDF Encryption",
+            "Remove encryption or set accessibility permissions to allow assistive technology access.",
+            infringing_text="Document is encrypted",
+        )]
         return _check(
             "Encryption / Security",
             "security",
@@ -129,6 +161,7 @@ def _check_encryption(pdf: pikepdf.Pdf) -> AccessibilityCheck:
             "The PDF is encrypted. Encryption can block screen readers and other assistive technologies from accessing content.",
             ["Remove encryption or configure permissions to allow assistive technology access."],
             wcag="4.1.1",
+            findings=findings,
         )
     return _check(
         "Encryption / Security",
@@ -168,6 +201,15 @@ def _check_document_title(pdf: pikepdf.Pdf, doc: fitz.Document) -> Accessibility
         except Exception:
             pass
 
+        findings = [_finding(
+            "document",
+            "Document Title",
+            f'Set document title to "{suggested or "Untitled Document"}"',
+            infringing_text="Not set",
+            editor="text",
+            field_key="doc_title",
+            placeholder=suggested or "Untitled Document",
+        )]
         return _check(
             "Document Title",
             "metadata",
@@ -183,6 +225,7 @@ def _check_document_title(pdf: pikepdf.Pdf, doc: fitz.Document) -> Accessibility
                 fix_type=FixType.METADATA_TITLE,
                 fix_data={"title": suggested or "Untitled Document"},
             ),
+            findings=findings,
         )
 
     return _check(
@@ -205,6 +248,15 @@ def _check_language(pdf: pikepdf.Pdf) -> AccessibilityCheck:
         pass
 
     if not lang:
+        findings = [_finding(
+            "document",
+            "Document Language",
+            'Set the language tag (e.g. "en-US") so screen readers use the correct voice.',
+            infringing_text="Not set",
+            editor="text",
+            field_key="doc_language",
+            placeholder="en-US",
+        )]
         return _check(
             "Document Language",
             "metadata",
@@ -221,6 +273,7 @@ def _check_language(pdf: pikepdf.Pdf) -> AccessibilityCheck:
                 fix_type=FixType.METADATA_LANGUAGE,
                 fix_data={"language": "en-US"},
             ),
+            findings=findings,
         )
 
     return _check(
@@ -259,6 +312,15 @@ def _check_tagged_pdf(pdf: pikepdf.Pdf) -> AccessibilityCheck:
     if not marked:
         details.append("The PDF is not marked (/MarkInfo missing or Marked=false).")
 
+    findings = [
+        _finding(
+            "document",
+            "PDF Structure Tree",
+            "Use Adobe Acrobat Pro or an accessible PDF authoring tool to add tags.",
+            infringing_text=detail,
+        )
+        for detail in details
+    ]
     return _check(
         "Tagged PDF (Structure Tree)",
         "structure",
@@ -267,12 +329,19 @@ def _check_tagged_pdf(pdf: pikepdf.Pdf) -> AccessibilityCheck:
         "PDF lacks a proper tagged structure. Without tags, screen readers cannot determine reading order, headings, or element roles.",
         details,
         pdf_ua="7.1",
+        findings=findings,
     )
 
 
 def _check_image_alt_text(pdf: pikepdf.Pdf, doc: fitz.Document) -> AccessibilityCheck:
     has_struct = "/StructTreeRoot" in pdf.Root
     if not has_struct:
+        findings = [_finding(
+            "image",
+            "All Images",
+            "Tag the PDF with a structure tree and add /Alt to all Figure elements.",
+            infringing_text="PDF has no structure tree — images unverifiable",
+        )]
         return _check(
             "Image Alternative Text",
             "images",
@@ -281,6 +350,7 @@ def _check_image_alt_text(pdf: pikepdf.Pdf, doc: fitz.Document) -> Accessibility
             "Cannot verify image alt text because the PDF has no structure tree. All images are inaccessible to screen readers.",
             ["Tag the PDF with a structure tree and add /Alt attributes to all Figure elements."],
             wcag="1.1.1",
+            findings=findings,
         )
 
     figures_missing: list[dict] = []
@@ -349,6 +419,20 @@ def _check_image_alt_text(pdf: pikepdf.Pdf, doc: fitz.Document) -> Accessibility
 
     alt_texts = {f["index"]: f"[Image on page {f['page'] or '?'} — description required]" for f in figures_missing}
 
+    findings = [
+        _finding(
+            "image",
+            f"Image #{f['index'] + 1}",
+            "Add a concise description (≤150 chars) that conveys the image's meaning to screen reader users.",
+            page=f["page"],
+            infringing_text="Missing alt text",
+            editor="textarea",
+            field_key=str(f["index"]),
+            placeholder=alt_texts[f["index"]],
+        )
+        for f in figures_missing
+    ]
+
     return _check(
         "Image Alternative Text",
         "images",
@@ -364,6 +448,7 @@ def _check_image_alt_text(pdf: pikepdf.Pdf, doc: fitz.Document) -> Accessibility
             fix_type=FixType.ALT_TEXT,
             fix_data={"alt_texts": alt_texts, "figures_missing": figures_missing},
         ),
+        findings=findings,
     )
 
 
@@ -392,6 +477,12 @@ def _check_headings(pdf: pikepdf.Pdf) -> AccessibilityCheck:
         pass
 
     if not headings:
+        findings = [_finding(
+            "heading",
+            "Heading Structure",
+            "Add H1–H6 heading tags to section titles.",
+            infringing_text="No heading elements found",
+        )]
         return _check(
             "Heading Structure",
             "structure",
@@ -400,6 +491,7 @@ def _check_headings(pdf: pikepdf.Pdf) -> AccessibilityCheck:
             "No heading elements (H1–H6) found in the structure tree. Documents should use headings to create a navigable outline.",
             ["Add heading tags to section titles so screen reader users can navigate by heading."],
             wcag="1.3.1",
+            findings=findings,
         )
 
     issues: list[str] = []
@@ -413,6 +505,15 @@ def _check_headings(pdf: pikepdf.Pdf) -> AccessibilityCheck:
             issues.append(f"Heading level skipped: H{levels[i-1]} jumps to H{levels[i]}.")
 
     if issues:
+        findings = [
+            _finding(
+                "heading",
+                "Heading Hierarchy",
+                "Fix heading levels so they increment by one and start with H1.",
+                infringing_text=issue,
+            )
+            for issue in issues
+        ]
         return _check(
             "Heading Structure",
             "structure",
@@ -421,6 +522,7 @@ def _check_headings(pdf: pikepdf.Pdf) -> AccessibilityCheck:
             f"Heading hierarchy has {len(issues)} issue(s). Incorrect heading order confuses screen reader navigation.",
             issues,
             wcag="1.3.1",
+            findings=findings,
         )
 
     return _check(
@@ -469,6 +571,22 @@ def _check_tables(pdf: pikepdf.Pdf) -> AccessibilityCheck:
         )
 
     if tables_without_headers:
+        findings = []
+        i = 0
+        try:
+            struct_root = pdf.Root["/StructTreeRoot"]
+            for table_node in _struct_elements(struct_root, {"Table"}):
+                has_th = any(True for _ in _struct_elements(table_node, {"TH"}))
+                if not has_th:
+                    findings.append(_finding(
+                        "table",
+                        f"Table #{i + 1}",
+                        "Add TH elements with scope='col' or scope='row' to identify column/row headers.",
+                        infringing_text="Missing header cells (TH)",
+                    ))
+                i += 1
+        except Exception:
+            pass
         return _check(
             "Table Headers",
             "structure",
@@ -477,6 +595,7 @@ def _check_tables(pdf: pikepdf.Pdf) -> AccessibilityCheck:
             f"{tables_without_headers} of {tables_found} table(s) are missing header cells (TH elements). Screen readers cannot associate data cells with their headers.",
             ["Add TH elements with appropriate scope attributes (col/row) to all table headers."],
             wcag="1.3.1",
+            findings=findings,
         )
 
     return _check(
@@ -530,6 +649,15 @@ def _check_form_fields(pdf: pikepdf.Pdf) -> AccessibilityCheck:
                 wcag="1.3.1",
             )
 
+        findings = [
+            _finding(
+                "form_field",
+                f'Field: "{name}"',
+                "Add a /TU tooltip attribute describing the field's purpose.",
+                infringing_text="Missing accessible tooltip (/TU)",
+            )
+            for name in unlabeled
+        ]
         return _check(
             "Form Field Labels",
             "forms",
@@ -538,6 +666,7 @@ def _check_form_fields(pdf: pikepdf.Pdf) -> AccessibilityCheck:
             f"{len(unlabeled)} form field(s) lack accessible labels. Screen reader users cannot determine the purpose of these fields.",
             [f'Field missing tooltip: "{n}"' for n in unlabeled[:6]],
             wcag="1.3.1",
+            findings=findings,
         )
     except Exception as e:
         return _check(
