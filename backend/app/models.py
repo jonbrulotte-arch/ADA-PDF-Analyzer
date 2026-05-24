@@ -76,9 +76,79 @@ class UploadResponse(BaseModel):
 
 class RemediateRequest(BaseModel):
     approved_fix_ids: List[str]
+    custom_alt_texts: Dict[str, str] = {}   # figure_index_str → alt text (overrides placeholders)
+    acknowledgments: Dict[str, str] = {}    # check_id → note (stored in session state)
 
 
 class RemediateResponse(BaseModel):
     session_id: str
     changes_made: List[str]
     download_url: str
+
+
+class SessionState(BaseModel):
+    session_id: str
+    approved_fix_ids: List[str] = []
+    custom_alt_texts: Dict[str, str] = {}   # figure_index_str → alt text
+    acknowledgments: Dict[str, str] = {}    # check_id → note
+    reanalysis_done: bool = False
+    score_before: Optional[int] = None
+    score_after: Optional[int] = None
+    updated_at: str = ""
+
+
+class AppSettings(BaseModel):
+    ai_alt_text_enabled: bool = False
+
+
+class AppSettingsResponse(AppSettings):
+    has_api_key: bool
+
+
+class BatchSessionSummary(BaseModel):
+    session_id: str
+    filename: str
+    score: int
+    grade: str
+    page_count: int
+    status: str   # "done" | "error"
+    error: Optional[str] = None
+
+
+class BatchManifest(BaseModel):
+    batch_id: str
+    created_at: str
+    sessions: List[BatchSessionSummary]
+
+
+class HistoryEntry(BaseModel):
+    session_id: str
+    filename: str
+    score: int
+    grade: str
+    page_count: int
+    file_size_kb: int
+    created_at: str
+
+
+class AltTextResponse(BaseModel):
+    check_id: str
+    alt_texts: Dict[str, str]   # figure_index → generated text
+
+
+class ReanalyzeResponse(BaseModel):
+    session_id: str
+    score_before: int
+    score_after: int
+    new_report: AccessibilityReport
+
+
+class BatchUploadResponse(BaseModel):
+    batch_id: str
+    sessions: List[BatchSessionSummary]
+
+
+class PatchStateRequest(BaseModel):
+    approved_fix_ids: Optional[List[str]] = None
+    custom_alt_texts: Optional[Dict[str, str]] = None
+    acknowledgments: Optional[Dict[str, str]] = None
