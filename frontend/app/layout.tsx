@@ -27,12 +27,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {/* Spacer */}
             <div className="flex-1" />
 
-            {/* History link */}
+            {/* Nav links */}
             <Link
-              href="/history"
+              href="/projects"
               className="text-sm text-slate-500 hover:text-indigo-600 transition-colors font-medium"
             >
-              History
+              Projects
+            </Link>
+            <Link
+              href="/instructions"
+              className="text-sm text-slate-500 hover:text-indigo-600 transition-colors font-medium"
+            >
+              How It Works
+            </Link>
+            <Link
+              href="/api-docs"
+              className="text-sm text-slate-500 hover:text-indigo-600 transition-colors font-medium"
+            >
+              API
             </Link>
 
             {/* Settings button */}
