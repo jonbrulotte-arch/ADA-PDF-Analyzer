@@ -170,6 +170,7 @@ def apply_fixes(
     input_path: str,
     output_path: str,
     custom_alt_texts: dict[str, str] | None = None,
+    finding_values: dict[str, str] | None = None,
 ) -> list[str]:
     """Apply all approved fixes and write the remediated PDF. Returns list of human-readable changes."""
     id_set = set(approved_fix_ids)
@@ -192,9 +193,11 @@ def apply_fixes(
     with pikepdf.open(input_path) as pdf:
         for fix_type, fix_data in fixes_by_type.values():
             if fix_type == FixType.METADATA_TITLE:
-                changes.append(_apply_title(pdf, fix_data["title"]))
+                title = (finding_values or {}).get("doc_title") or fix_data.get("title", "Untitled Document")
+                changes.append(_apply_title(pdf, title))
             elif fix_type == FixType.METADATA_LANGUAGE:
-                changes.append(_apply_language(pdf, fix_data["language"]))
+                lang = (finding_values or {}).get("doc_language") or fix_data.get("language", "en-US")
+                changes.append(_apply_language(pdf, lang))
             elif fix_type == FixType.ALT_TEXT:
                 # Merge custom_alt_texts over the placeholder alt_texts from fix_data
                 if custom_alt_texts:

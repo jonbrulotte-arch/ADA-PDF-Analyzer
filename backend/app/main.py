@@ -212,6 +212,7 @@ def remediate_pdf(session_id: str, body: RemediateRequest):
             input_path,
             output_path,
             custom_alt_texts=body.custom_alt_texts if body.custom_alt_texts else None,
+            finding_values=body.finding_values if body.finding_values else None,
         )
     except Exception as e:
         raise HTTPException(500, f"Remediation failed: {e}")
@@ -224,6 +225,8 @@ def remediate_pdf(session_id: str, body: RemediateRequest):
             state.acknowledgments.update(body.acknowledgments)
         if body.custom_alt_texts:
             state.custom_alt_texts.update(body.custom_alt_texts)
+        if body.finding_values:
+            state.finding_values.update(body.finding_values)
         save_state(state)
     except Exception:
         pass  # state failure should not break the remediation response
@@ -304,6 +307,8 @@ def patch_session_state(session_id: str, body: PatchStateRequest):
         state.custom_alt_texts = body.custom_alt_texts
     if body.acknowledgments is not None:
         state.acknowledgments = body.acknowledgments
+    if body.finding_values is not None:
+        state.finding_values = body.finding_values
     save_state(state)
     return state
 

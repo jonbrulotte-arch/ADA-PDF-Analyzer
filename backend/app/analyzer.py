@@ -733,6 +733,12 @@ def _check_bookmarks(pdf: pikepdf.Pdf, doc: fitz.Document) -> AccessibilityCheck
             fix_data={"headings": headings},
         )
 
+    findings = [_finding(
+        "navigation",
+        "Document Bookmarks",
+        "Add a navigation outline with at least top-level section bookmarks.",
+        infringing_text=f"No bookmarks in {page_count}-page document",
+    )]
     return _check(
         "Bookmarks / Navigation Outline",
         "navigation",
@@ -742,12 +748,13 @@ def _check_bookmarks(pdf: pikepdf.Pdf, doc: fitz.Document) -> AccessibilityCheck
         ["Add a navigation outline with at least top-level section bookmarks."],
         pdf_ua="6.7.3",
         fix=fix,
+        findings=findings,
     )
 
 
 def _check_links(doc: fitz.Document) -> AccessibilityCheck:
     vague = {"click here", "here", "read more", "more", "link", "this", "url", "www"}
-    issues: list[str] = []
+    findings: list[Finding] = []
 
     for page_num in range(doc.page_count):
         page = doc[page_num]
@@ -759,10 +766,16 @@ def _check_links(doc: fitz.Document) -> AccessibilityCheck:
                 continue
             text = page.get_text("text", clip=rect).strip().lower()
             if not text or text in vague or (len(text) < 5 and text.replace(".", "").replace("/", "").isalpha()):
-                uri = link.get("uri", "")[:60]
-                issues.append(f'Page {page_num + 1}: link text "{text or "(empty)"}" → {uri}')
+                uri = link.get("uri", "")[:80]
+                findings.append(_finding(
+                    "link",
+                    f'Link: "{text or "(empty)"}"',
+                    f'Replace "{text or "(empty)"}" with descriptive text that explains the link destination.',
+                    page=page_num + 1,
+                    infringing_text=f'"{text or "(empty)"}" → {uri}',
+                ))
 
-    if not issues:
+    if not findings:
         return _check(
             "Descriptive Link Text",
             "navigation",
@@ -772,14 +785,16 @@ def _check_links(doc: fitz.Document) -> AccessibilityCheck:
             wcag="2.4.4",
         )
 
+    issues = [f.infringing_text for f in findings if f.infringing_text]
     return _check(
         "Descriptive Link Text",
         "navigation",
         CheckStatus.WARNING,
         Severity.MINOR,
-        f"{len(issues)} link(s) use vague text like 'click here' or 'read more'. Screen reader users navigate links by text alone.",
+        f"{len(findings)} link(s) use vague text like 'click here' or 'read more'. Screen reader users navigate links by text alone.",
         issues[:6],
         wcag="2.4.4",
+        findings=findings,
     )
 
 
@@ -804,6 +819,15 @@ def _check_fonts(doc: fitz.Document) -> AccessibilityCheck:
             pdf_ua="7.21.4",
         )
 
+    findings = [
+        _finding(
+            "font",
+            f"Font: {font_name}",
+            "Embed the font in the PDF to ensure consistent text rendering on all devices.",
+            infringing_text="Not embedded",
+        )
+        for font_name in sorted(unembedded)
+    ]
     return _check(
         "Font Embedding",
         "text",
@@ -812,6 +836,7 @@ def _check_fonts(doc: fitz.Document) -> AccessibilityCheck:
         f"{len(unembedded)} font(s) are not embedded. Text may render incorrectly on other systems.",
         [f"Not embedded: {f}" for f in sorted(unembedded)[:6]],
         pdf_ua="7.21.4",
+        findings=findings,
     )
 
 
@@ -840,6 +865,16 @@ def _check_color_contrast(doc: fitz.Document) -> AccessibilityCheck:
 
     if light_text_pages:
         pages_str = ", ".join(str(p) for p in sorted(light_text_pages)[:8])
+        findings = [
+            _finding(
+                "text",
+                f"Text on page {p}",
+                "Verify minimum 4.5:1 contrast ratio for normal text and 3:1 for large text (WCAG 1.4.3).",
+                page=p,
+                infringing_text="Potentially light-colored text detected",
+            )
+            for p in sorted(light_text_pages)
+        ]
         return _check(
             "Color Contrast",
             "visual",
@@ -848,6 +883,7 @@ def _check_color_contrast(doc: fitz.Document) -> AccessibilityCheck:
             f"Potentially light-colored text detected on page(s) {pages_str}. Insufficient contrast makes text hard to read for users with low vision.",
             ["Verify a 4.5:1 contrast ratio for normal text and 3:1 for large text (18pt+ or 14pt+ bold)."],
             wcag="1.4.3",
+            findings=findings,
         )
 
     return _check(
@@ -863,6 +899,12 @@ def _check_color_contrast(doc: fitz.Document) -> AccessibilityCheck:
 def _check_reading_order(pdf: pikepdf.Pdf) -> AccessibilityCheck:
     has_struct = "/StructTreeRoot" in pdf.Root
     if has_struct:
+        findings = [_finding(
+            "document",
+            "Reading Order",
+            "Review tab order in Adobe Acrobat Pro or PAC 2024 to confirm content flows correctly.",
+            infringing_text="Structure tree present but reading order requires visual verification",
+        )]
         return _check(
             "Logical Reading Order",
             "structure",
@@ -871,7 +913,14 @@ def _check_reading_order(pdf: pikepdf.Pdf) -> AccessibilityCheck:
             "A structure tree exists but logical reading order requires visual verification. Automated tools cannot fully validate that content flows in the correct sequence.",
             ["Review the tab/reading order in Adobe Acrobat Pro or PAC 2024 to confirm it matches visual layout."],
             wcag="1.3.2",
+            findings=findings,
         )
+    findings = [_finding(
+        "document",
+        "Reading Order",
+        "Tag the PDF with a structure tree using an accessible PDF authoring tool.",
+        infringing_text="No structure tree — reading order undefined",
+    )]
     return _check(
         "Logical Reading Order",
         "structure",
@@ -879,6 +928,7 @@ def _check_reading_order(pdf: pikepdf.Pdf) -> AccessibilityCheck:
         Severity.CRITICAL,
         "Without a structure tree there is no defined reading order. Screen readers will read content in the order it appears in the content stream, which may differ from visual order.",
         wcag="1.3.2",
+        findings=findings,
     )
 
 
@@ -888,6 +938,12 @@ def _check_scanned(doc: fitz.Document) -> tuple[bool, Optional[AccessibilityChec
     avg = total_chars / min(doc.page_count, 5)
 
     if avg < 20:
+        findings = [_finding(
+            "document",
+            "Text Layer",
+            "Run OCR (Tesseract, Adobe Acrobat, ABBYY FineReader) to add a searchable text layer.",
+            infringing_text="No selectable text (image-only PDF)",
+        )]
         return True, _check(
             "Text Layer (Scanned Document)",
             "text",
@@ -899,6 +955,7 @@ def _check_scanned(doc: fitz.Document) -> tuple[bool, Optional[AccessibilityChec
                 "Use Adobe Acrobat Pro, ABBYY FineReader, or free tools like Tesseract.",
             ],
             wcag="1.1.1",
+            findings=findings,
         )
     return False, None
 
