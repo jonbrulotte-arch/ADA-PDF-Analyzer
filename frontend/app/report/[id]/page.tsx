@@ -205,7 +205,9 @@ function CheckItem({
   }, [isAltTextCheck, check.fix]);
 
   const existingAck = acknowledgments[check.id];
-  const canAcknowledge = check.status === "fail" && (!check.fix || !check.fix.auto_fixable);
+  const isWarning = check.status === "warning";
+  const canAcknowledge =
+    (check.status === "fail" && (!check.fix || !check.fix.auto_fixable)) || isWarning;
 
   const handleAcknowledgeSubmit = () => {
     onAcknowledge(check.id, ackNote.trim());
@@ -234,7 +236,7 @@ function CheckItem({
             )}
             {existingAck && (
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                Acknowledged
+                {check.status === "warning" ? "Validated" : "Acknowledged"}
               </span>
             )}
           </div>
@@ -438,7 +440,7 @@ function CheckItem({
             </div>
           )}
 
-          {/* Acknowledge section for non-auto-fixable failures */}
+          {/* Acknowledge / Validation Complete section */}
           {canAcknowledge && (
             <div className="mt-4">
               {existingAck && !editingAck ? (
@@ -446,14 +448,14 @@ function CheckItem({
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-emerald-700 flex items-center gap-1 mb-1">
-                        <Check className="w-3 h-3" /> Acknowledged
+                        <Check className="w-3 h-3" /> {isWarning ? "Validation Complete" : "Acknowledged"}
                       </p>
-                      {existingAck && (
+                      {existingAck !== "__validated__" && (
                         <p className="text-sm text-slate-700">{existingAck}</p>
                       )}
                     </div>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setAckNote(existingAck); setEditingAck(true); }}
+                      onClick={(e) => { e.stopPropagation(); setAckNote(existingAck === "__validated__" ? "" : existingAck); setEditingAck(true); }}
                       className="text-xs text-emerald-600 hover:text-emerald-800 underline underline-offset-2 flex-shrink-0"
                     >
                       Edit
@@ -463,27 +465,36 @@ function CheckItem({
               ) : (
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
                   <p className="text-xs font-semibold text-slate-700">
-                    {editingAck ? "Edit Acknowledgment" : "Manual remediation required"}
+                    {editingAck
+                      ? (isWarning ? "Edit Validation Note" : "Edit Acknowledgment")
+                      : (isWarning ? "Manual verification required" : "Manual remediation required")}
                   </p>
                   {!editingAck && (
                     <p className="text-sm text-slate-600">
-                      This issue cannot be automatically fixed. You can acknowledge it with a note.
+                      {isWarning
+                        ? "This check requires visual verification — automated tools cannot fully validate it. Once you have confirmed it manually, mark it as validated to clear it from the score."
+                        : "This issue cannot be automatically fixed. You can acknowledge it with a note."}
                     </p>
                   )}
                   <textarea
                     rows={2}
-                    value={editingAck ? ackNote : ackNote}
-                    placeholder="Add a note (e.g. tracked in Jira, will fix in v2…)"
+                    value={ackNote}
+                    placeholder={isWarning ? "Optional: describe how you verified this (e.g. reviewed in Acrobat Pro, tested with NVDA…)" : "Add a note (e.g. tracked in Jira, will fix in v2…)"}
                     onChange={(e) => setAckNote(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
                     className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
                   />
                   <div className="flex gap-2">
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleAcknowledgeSubmit(); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAcknowledge(check.id, ackNote.trim() || "__validated__");
+                        setEditingAck(false);
+                        setAckNote("");
+                      }}
                       className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
                     >
-                      <Check className="w-3 h-3" /> Mark Acknowledged
+                      <Check className="w-3 h-3" /> {isWarning ? "Mark Validation Complete" : "Mark Acknowledged"}
                     </button>
                     {editingAck && (
                       <button
@@ -685,6 +696,28 @@ export default function ReportPage() {
     [report]
   );
 
+  // Effective score: acknowledged warnings count as full passes
+  const effectiveScore = useMemo(() => {
+    if (!report) return 0;
+    const WEIGHTS: Record<string, number> = { critical: 3, major: 2, minor: 1 };
+    const scorable = report.checks.filter((c) => c.status !== "info");
+    let earned = 0, total = 0;
+    for (const c of scorable) {
+      const w = WEIGHTS[c.severity] ?? 1;
+      total += w;
+      if (c.status === "pass") {
+        earned += w;
+      } else if (c.status === "warning") {
+        earned += acknowledgments[c.id] ? w : w * 0.5;
+      }
+      // fail = 0
+    }
+    return total > 0 ? Math.min(100, Math.round((earned / total) * 100)) : 100;
+  }, [report, acknowledgments]);
+
+  const effectiveGrade = effectiveScore >= 90 ? "A" : effectiveScore >= 75 ? "B" : effectiveScore >= 55 ? "C" : effectiveScore >= 35 ? "D" : "F";
+  const hasManualValidations = report ? report.checks.some((c) => c.status === "warning" && acknowledgments[c.id]) : false;
+
   const approveAll = () => {
     const ids = new Set(autoFixableChecks.map((c) => c.fix!.id));
     setApprovedIds(ids);
@@ -777,8 +810,10 @@ export default function ReportPage() {
   }
 
   const { summary } = report;
+  const displayScore = effectiveScore;
+  const displayGrade = effectiveGrade;
   const scoreColor =
-    summary.score >= 75 ? "text-emerald-600" : summary.score >= 50 ? "text-amber-500" : "text-red-500";
+    displayScore >= 75 ? "text-emerald-600" : displayScore >= 50 ? "text-amber-500" : "text-red-500";
 
   // ---------------------------------------------------------------------------
   // Main report render
@@ -797,7 +832,14 @@ export default function ReportPage() {
       {/* ============================================================ */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-          <ScoreCircle score={summary.score} grade={summary.grade} />
+          <div className="relative">
+            <ScoreCircle score={displayScore} grade={displayGrade} />
+            {hasManualValidations && (
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center" title="Score includes manually validated checks">
+                <Check className="w-2.5 h-2.5 text-white" />
+              </div>
+            )}
+          </div>
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
@@ -809,10 +851,15 @@ export default function ReportPage() {
               <span className="text-xs text-slate-400">{report.file_size_kb} KB</span>
             </div>
 
-            <h2 className="text-2xl font-bold text-slate-900 mb-3">
+            <h2 className="text-2xl font-bold text-slate-900 mb-1">
               Accessibility Score:{" "}
-              <span className={scoreColor}>{summary.grade}</span>
+              <span className={scoreColor}>{displayGrade}</span>
             </h2>
+            {hasManualValidations && displayScore !== summary.score && (
+              <p className="text-xs text-emerald-600 mb-2">
+                Includes manually validated checks · raw score: {summary.score}
+              </p>
+            )}
 
             {/* Stat row */}
             <div className="flex flex-wrap gap-3 mb-4">
