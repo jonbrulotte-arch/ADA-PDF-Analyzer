@@ -130,7 +130,11 @@ def add_revision(project_id: str, revision: ProjectRevision) -> Project | None:
     return project
 
 
-def update_revision(project_id: str, session_id: str, label: str | None, notes: str | None) -> ProjectRevision | None:
+def update_revision(
+    project_id: str, session_id: str,
+    label: str | None, notes: str | None,
+    score: int | None = None, grade: str | None = None,
+) -> ProjectRevision | None:
     project = load_project(project_id)
     if project is None:
         return None
@@ -140,6 +144,10 @@ def update_revision(project_id: str, session_id: str, label: str | None, notes: 
                 rev.label = label
             if notes is not None:
                 rev.notes = notes
+            if score is not None:
+                rev.score = score
+            if grade is not None:
+                rev.grade = grade
             save_project(project)
             return rev
     return None

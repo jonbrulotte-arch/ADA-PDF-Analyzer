@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getProjects, deleteProject } from "@/lib/api";
+import { getProjects, deleteProject, createProject } from "@/lib/api";
 import type { ProjectSummary, ProjectStatus } from "@/lib/types";
-import { ArrowLeft, Upload, FolderOpen, Loader2, XCircle, Trash2, ChevronRight } from "lucide-react";
+import { ArrowLeft, Upload, FolderOpen, Loader2, XCircle, Trash2, ChevronRight, Plus, X } from "lucide-react";
 
 function cx(...classes: (string | false | undefined | null)[]): string {
   return classes.filter(Boolean).join(" ");
@@ -58,6 +58,100 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "archived",   label: "Archived" },
 ];
 
+function NewProjectModal({ onClose, onCreate }: {
+  onClose: () => void;
+  onCreate: (projectId: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [assignee, setAssignee] = useState("");
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { nameRef.current?.focus(); }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const project = await createProject({ name: name.trim(), assignee: assignee.trim(), description: description.trim() });
+      onCreate(project.project_id);
+    } catch (ex: unknown) {
+      setErr(ex instanceof Error ? ex.message : "Failed to create project.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-slate-900">New Project</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Project name *</label>
+            <input
+              ref={nameRef}
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Annual Report 2024"
+              className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Assignee</label>
+            <input
+              type="text"
+              value={assignee}
+              onChange={e => setAssignee(e.target.value)}
+              placeholder="e.g. jane.doe@example.com"
+              className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Description</label>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Optional notes about this project…"
+              rows={2}
+              className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+            />
+          </div>
+          {err && <p className="text-xs text-red-600">{err}</p>}
+          <div className="flex gap-2 pt-1">
+            <button
+              type="submit"
+              disabled={saving || !name.trim()}
+              className={cx(
+                "flex-1 inline-flex items-center justify-center gap-2 py-2 rounded-xl font-semibold text-sm transition-colors",
+                saving || !name.trim()
+                  ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  : "bg-indigo-600 text-white hover:bg-indigo-700"
+              )}
+            >
+              {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</> : "Create Project"}
+            </button>
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border border-slate-300 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function HistoryPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -67,6 +161,7 @@ export default function HistoryPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [showNewModal, setShowNewModal] = useState(false);
 
   const fetchProjects = (q: string, status: string) => {
     setLoading(true);
@@ -112,6 +207,13 @@ export default function HistoryPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+      {showNewModal && (
+        <NewProjectModal
+          onClose={() => setShowNewModal(false)}
+          onCreate={(id) => router.push(`/project/${id}`)}
+        />
+      )}
+
       <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 mb-6 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Upload a PDF
       </Link>
@@ -123,14 +225,14 @@ export default function HistoryPage() {
             <p className="text-sm text-slate-500 mt-0.5">{total} project{total !== 1 ? "s" : ""}</p>
           )}
         </div>
-        {/* Filters */}
-        <div className="flex items-center gap-2">
+        {/* Filters + New Project */}
+        <div className="flex items-center gap-2 flex-wrap">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search projects…"
-            className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent w-48"
+            className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent w-44"
           />
           <select
             value={statusFilter}
@@ -141,6 +243,12 @@ export default function HistoryPage() {
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" /> New Project
+          </button>
         </div>
       </div>
 

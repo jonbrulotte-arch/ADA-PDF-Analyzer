@@ -309,7 +309,9 @@ async def upload_pdf(
 def get_report(session_id: str):
     """Analyze the uploaded PDF (cached after first run)."""
     if _report_path(session_id).exists():
-        return _load_report(session_id)
+        report = _load_report(session_id)
+        report.project_id = _get_meta(session_id).get("project_id", "")
+        return report
 
     pdf_path = _session_dir(session_id) / "original.pdf"
     if not pdf_path.exists():
@@ -340,10 +342,11 @@ def get_report(session_id: str):
     except Exception:
         pass  # history failure should never break the main response
 
-    # Update project revision score/grade
+    # Update project revision score/grade and inject project_id into response
     try:
         meta = _get_meta(session_id)
-        pid = meta.get("project_id")
+        pid = meta.get("project_id", "")
+        report.project_id = pid
         if pid:
             proj = load_project(pid)
             if proj:
@@ -955,9 +958,9 @@ def get_revision(project_id: str, session_id: str):
     raise HTTPException(404, f"Revision {session_id} not found in project.")
 
 
-@app.patch("/api/projects/{project_id}/revisions/{session_id}", response_model=ProjectRevision, tags=["projects"], summary="Update revision label/notes")
+@app.patch("/api/projects/{project_id}/revisions/{session_id}", response_model=ProjectRevision, tags=["projects"], summary="Update revision label/notes/score")
 def patch_revision(project_id: str, session_id: str, body: PatchRevisionRequest):
-    rev = update_revision(project_id, session_id, body.label, body.notes)
+    rev = update_revision(project_id, session_id, body.label, body.notes, body.score, body.grade)
     if rev is None:
         raise HTTPException(404, "Project or revision not found.")
     return rev

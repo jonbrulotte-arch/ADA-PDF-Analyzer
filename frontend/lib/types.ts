@@ -61,6 +61,7 @@ export interface AccessibilityReport {
   created_at: string;
   checks: AccessibilityCheck[];
   summary: ScoreSummary;
+  project_id: string;
 }
 
 export interface UploadResponse {

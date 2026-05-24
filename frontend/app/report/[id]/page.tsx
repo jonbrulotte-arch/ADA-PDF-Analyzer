@@ -9,6 +9,7 @@ import {
   getSettings,
   getSessionState,
   patchSessionState,
+  patchRevision,
   generateAltText,
   reanalyze,
   exportHtmlReportUrl,
@@ -633,6 +634,22 @@ export default function ReportPage() {
   }, [sessionId, approvedIds, customAltTexts, acknowledgments, findingValues]);
 
   // ---------------------------------------------------------------------------
+  // Sync effective score back to the project revision whenever it changes
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!initialLoadDone.current || !report?.project_id) return;
+    const timer = setTimeout(() => {
+      patchRevision(report.project_id, sessionId, {
+        score: effectiveScore,
+        grade: effectiveGrade,
+      }).catch(() => {});
+    }, 1000);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveScore]);
+
+  // ---------------------------------------------------------------------------
   // Page unload save via sendBeacon
   // ---------------------------------------------------------------------------
 
@@ -823,8 +840,11 @@ export default function ReportPage() {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
 
       {/* Back link */}
-      <button onClick={() => router.push("/")} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 mb-6 transition-colors">
-        <ArrowLeft className="w-4 h-4" /> Upload another PDF
+      <button
+        onClick={() => router.push(report.project_id ? `/project/${report.project_id}` : "/projects")}
+        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 mb-6 transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" /> Back to Project
       </button>
 
       {/* ============================================================ */}

@@ -235,7 +235,7 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 export async function patchRevision(projectId: string, sessionId: string, patch: {
-  label?: string; notes?: string;
+  label?: string; notes?: string; score?: number; grade?: string;
 }): Promise<ProjectRevision> {
   const res = await fetch(`/api/projects/${projectId}/revisions/${sessionId}`, {
     method: "PATCH",

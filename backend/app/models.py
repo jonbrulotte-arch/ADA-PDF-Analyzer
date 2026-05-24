@@ -101,6 +101,8 @@ class PatchProjectRequest(BaseModel):
 class PatchRevisionRequest(BaseModel):
     label: Optional[str] = None
     notes: Optional[str] = None
+    score: Optional[int] = None
+    grade: Optional[str] = None
 
 
 class LinkSessionRequest(BaseModel):
@@ -155,6 +157,7 @@ class AccessibilityReport(BaseModel):
     created_at: str
     checks: List[AccessibilityCheck]
     summary: ScoreSummary
+    project_id: str = ""
 
 
 class UploadResponse(BaseModel):
