@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: ada-backend
+    environment:
+      - STORAGE_DIR=/data
+      - MAX_UPLOAD_MB=50
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - pdf_storage:/data
+    ports:
+      - "${BACKEND_PORT:-8085}:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_URL: http://backend:8000
+    container_name: ada-frontend
+    environment:
+      - BACKEND_URL=http://backend:8000
+    ports:
+      - "${FRONTEND_PORT:-3010}:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pdf_storage:

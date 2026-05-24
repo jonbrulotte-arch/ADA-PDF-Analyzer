@@ -1,0 +1,166 @@
+import type {
+  AccessibilityReport,
+  AltTextResponse,
+  AppSettings,
+  AppSettingsResponse,
+  BatchManifest,
+  BatchSessionSummary,
+  HistoryEntry,
+  PatchStateRequest,
+  ReanalyzeResponse,
+  RemediateResponse,
+  SessionState,
+  UploadResponse,
+} from "./types";
+
+async function handleResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      msg = body.detail || body.message || msg;
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(msg);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ---------------------------------------------------------------------------
+// PDF Upload & Report
+// ---------------------------------------------------------------------------
+
+export async function uploadPdf(file: File): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/upload", { method: "POST", body: form });
+  return handleResponse<UploadResponse>(res);
+}
+
+export async function getReport(sessionId: string): Promise<AccessibilityReport> {
+  const res = await fetch(`/api/report/${sessionId}`);
+  return handleResponse<AccessibilityReport>(res);
+}
+
+export async function remediatePdf(
+  sessionId: string,
+  approvedFixIds: string[],
+  customAltTexts?: Record<string, string>,
+  acknowledgments?: Record<string, string>
+): Promise<RemediateResponse> {
+  const res = await fetch(`/api/remediate/${sessionId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      approved_fix_ids: approvedFixIds,
+      ...(customAltTexts && Object.keys(customAltTexts).length > 0 ? { custom_alt_texts: customAltTexts } : {}),
+      ...(acknowledgments && Object.keys(acknowledgments).length > 0 ? { acknowledgments } : {}),
+    }),
+  });
+  return handleResponse<RemediateResponse>(res);
+}
+
+export function downloadUrl(sessionId: string): string {
+  return `/api/download/${sessionId}`;
+}
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+export async function getSettings(): Promise<AppSettingsResponse> {
+  const res = await fetch("/api/settings");
+  return handleResponse<AppSettingsResponse>(res);
+}
+
+export async function patchSettings(patch: Partial<AppSettings>): Promise<AppSettingsResponse> {
+  const res = await fetch("/api/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return handleResponse<AppSettingsResponse>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Session State
+// ---------------------------------------------------------------------------
+
+export async function getSessionState(sessionId: string): Promise<SessionState> {
+  const res = await fetch(`/api/session/${sessionId}/state`);
+  return handleResponse<SessionState>(res);
+}
+
+export async function patchSessionState(sessionId: string, patch: PatchStateRequest): Promise<SessionState> {
+  const res = await fetch(`/api/session/${sessionId}/state`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return handleResponse<SessionState>(res);
+}
+
+// ---------------------------------------------------------------------------
+// AI Alt Text Generation
+// ---------------------------------------------------------------------------
+
+export async function generateAltText(sessionId: string, checkId: string): Promise<AltTextResponse> {
+  const res = await fetch(`/api/session/${sessionId}/generate-alt-text`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ check_id: checkId }),
+  });
+  return handleResponse<AltTextResponse>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Re-analysis
+// ---------------------------------------------------------------------------
+
+export async function reanalyze(sessionId: string): Promise<ReanalyzeResponse> {
+  const res = await fetch(`/api/session/${sessionId}/reanalyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  return handleResponse<ReanalyzeResponse>(res);
+}
+
+// ---------------------------------------------------------------------------
+// HTML Export
+// ---------------------------------------------------------------------------
+
+export function exportHtmlReportUrl(sessionId: string): string {
+  return `/api/session/${sessionId}/export-html`;
+}
+
+// ---------------------------------------------------------------------------
+// Batch Upload
+// ---------------------------------------------------------------------------
+
+export async function batchUpload(files: File[]): Promise<{ batch_id: string; sessions: BatchSessionSummary[] }> {
+  const form = new FormData();
+  for (const file of files) {
+    form.append("files", file);
+  }
+  const res = await fetch("/api/batch/upload", { method: "POST", body: form });
+  return handleResponse<{ batch_id: string; sessions: BatchSessionSummary[] }>(res);
+}
+
+export async function getBatch(batchId: string): Promise<BatchManifest> {
+  const res = await fetch(`/api/batch/${batchId}`);
+  return handleResponse<BatchManifest>(res);
+}
+
+// ---------------------------------------------------------------------------
+// History
+// ---------------------------------------------------------------------------
+
+export async function getHistory(
+  limit = 50,
+  offset = 0
+): Promise<{ entries: HistoryEntry[]; total: number }> {
+  const res = await fetch(`/api/history?limit=${limit}&offset=${offset}`);
+  return handleResponse<{ entries: HistoryEntry[]; total: number }>(res);
+}
