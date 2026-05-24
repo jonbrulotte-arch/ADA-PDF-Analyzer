@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { extractElements, buildStructureTree } from "@/lib/api";
 import type { PageElement, PageElements, ElementAssignment } from "@/lib/types";
@@ -15,7 +15,6 @@ function cx(...classes: (string | false | undefined | null)[]): string {
 
 export default function TagWizardPage() {
   const params = useParams();
-  const router = useRouter();
   const sessionId = params.id as string;
 
   const [step, setStep] = useState<"loading" | "assign" | "building" | "done">("loading");
