@@ -842,7 +842,8 @@ def _check_fonts(doc: fitz.Document) -> AccessibilityCheck:
 
 def _check_color_contrast(doc: fitz.Document) -> AccessibilityCheck:
     """Heuristic: flag text that is very light (could be invisible or low-contrast)."""
-    light_text_pages: set[int] = set()
+    findings: list[Finding] = []
+    seen: set[str] = set()
 
     for page_num in range(doc.page_count):
         page = doc[page_num]
@@ -852,29 +853,34 @@ def _check_color_contrast(doc: fitz.Document) -> AccessibilityCheck:
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
                         color = span.get("color", 0)
-                        if not span.get("text", "").strip():
+                        text = span.get("text", "").strip()
+                        if not text:
                             continue
                         r = (color >> 16) & 0xFF
                         g = (color >> 8) & 0xFF
                         b = color & 0xFF
                         luminance = 0.299 * r + 0.587 * g + 0.114 * b
                         if luminance > 210:
-                            light_text_pages.add(page_num + 1)
+                            snippet = text[:60]
+                            dedup_key = f"{page_num}:{r}{g}{b}:{snippet}"
+                            if dedup_key in seen or len(findings) >= 20:
+                                continue
+                            seen.add(dedup_key)
+                            hex_color = f"#{r:02X}{g:02X}{b:02X}"
+                            label = f'"{snippet}"' if len(snippet) <= 40 else f'"{snippet[:40]}…"'
+                            findings.append(_finding(
+                                "text",
+                                label,
+                                "Check contrast against the background — minimum 4.5:1 for normal text, 3:1 for large text (WCAG 1.4.3).",
+                                page=page_num + 1,
+                                infringing_text=f"Color {hex_color} — luminance {luminance:.0f}/255 (high = light)",
+                            ))
         except Exception:
             continue
 
-    if light_text_pages:
-        pages_str = ", ".join(str(p) for p in sorted(light_text_pages)[:8])
-        findings = [
-            _finding(
-                "text",
-                f"Text on page {p}",
-                "Verify minimum 4.5:1 contrast ratio for normal text and 3:1 for large text (WCAG 1.4.3).",
-                page=p,
-                infringing_text="Potentially light-colored text detected",
-            )
-            for p in sorted(light_text_pages)
-        ]
+    if findings:
+        light_pages = sorted({f.page for f in findings if f.page})
+        pages_str = ", ".join(str(p) for p in light_pages[:8])
         return _check(
             "Color Contrast",
             "visual",

@@ -107,11 +107,19 @@ def _save_history(entries: list[HistoryEntry]) -> None:
 def append_history(entry: HistoryEntry) -> None:
     """Deduplicate by session_id, insert at front (most recent first)."""
     entries = load_history()
-    # Remove any existing entry with same session_id
     entries = [e for e in entries if e.session_id != entry.session_id]
-    # Insert new entry at front
     entries.insert(0, entry)
     _save_history(entries)
+
+
+def delete_history_entry(session_id: str) -> bool:
+    """Remove a single entry by session_id. Returns True if found and removed."""
+    entries = load_history()
+    new_entries = [e for e in entries if e.session_id != session_id]
+    if len(new_entries) == len(entries):
+        return False
+    _save_history(new_entries)
+    return True
 
 
 # ---------------------------------------------------------------------------

@@ -33,6 +33,7 @@ from .remediator import apply_fixes
 from .report_exporter import render_html_report
 from .session_store import (
     append_history,
+    delete_history_entry,
     get_or_create_state,
     load_batch,
     load_history,
@@ -608,3 +609,10 @@ def get_history(
     total = len(all_entries)
     page = all_entries[offset: offset + limit]
     return {"entries": page, "total": total}
+
+
+@app.delete("/api/history/{session_id}")
+def delete_history(session_id: str):
+    if not delete_history_entry(session_id):
+        raise HTTPException(404, f"History entry {session_id} not found.")
+    return {"deleted": session_id}

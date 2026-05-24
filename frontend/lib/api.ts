@@ -190,3 +190,8 @@ export async function getHistory(
   const res = await fetch(`/api/history?limit=${limit}&offset=${offset}`);
   return handleResponse<{ entries: HistoryEntry[]; total: number }>(res);
 }
+
+export async function deleteHistory(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/history/${sessionId}`, { method: "DELETE" });
+  return handleResponse<void>(res);
+}

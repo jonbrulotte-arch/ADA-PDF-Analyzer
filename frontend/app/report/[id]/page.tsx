@@ -298,20 +298,24 @@ function CheckItem({
                         <p className="text-slate-600 mb-1.5">{finding.recommended_fix}</p>
                         {finding.editor !== "none" && finding.field_key && (
                           finding.editor === "textarea" ? (
-                            // Alt text is handled by the existing per-figure UI — skip here
                             null
                           ) : (
-                            <input
-                              type="text"
-                              value={findingValues[finding.field_key] ?? ""}
-                              placeholder={finding.placeholder ?? ""}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                onFindingValueChange(finding.field_key!, e.target.value);
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-full text-xs border border-slate-300 rounded-md px-2 py-1.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
-                            />
+                            <div>
+                              <input
+                                type="text"
+                                value={findingValues[finding.field_key] ?? ""}
+                                placeholder={finding.placeholder ?? ""}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  onFindingValueChange(finding.field_key!, e.target.value);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-full text-xs border border-slate-300 rounded-md px-2 py-1.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
+                              />
+                              <p className="text-xs text-slate-400 mt-1">
+                                Value saved automatically · applied when you click <strong>Apply Fixes</strong>
+                              </p>
+                            </div>
                           )
                         )}
                       </td>
