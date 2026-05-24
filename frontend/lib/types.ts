@@ -16,6 +16,18 @@ export interface FixAction {
   fix_data: Record<string, unknown>;
 }
 
+export interface Finding {
+  id: string;
+  page: number | null;
+  element_type: string;
+  element_label: string;
+  infringing_text: string | null;
+  recommended_fix: string;
+  editor: "none" | "text" | "textarea";
+  field_key: string | null;
+  placeholder: string | null;
+}
+
 export interface AccessibilityCheck {
   id: string;
   category: string;
@@ -27,6 +39,7 @@ export interface AccessibilityCheck {
   description: string;
   details: string[];
   fix: FixAction | null;
+  findings: Finding[];
 }
 
 export interface ScoreSummary {
@@ -67,6 +80,7 @@ export interface RemediateRequest {
   approved_fix_ids: string[];
   custom_alt_texts?: Record<string, string>;
   acknowledgments?: Record<string, string>;
+  finding_values?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +92,7 @@ export interface SessionState {
   approved_fix_ids: string[];
   custom_alt_texts: Record<string, string>; // figure_index_str → alt text
   acknowledgments: Record<string, string>;  // check_id → note
+  finding_values: Record<string, string>;   // field_key → user-edited value
   reanalysis_done: boolean;
   score_before: number | null;
   score_after: number | null;
@@ -88,6 +103,45 @@ export interface PatchStateRequest {
   approved_fix_ids?: string[];
   custom_alt_texts?: Record<string, string>;
   acknowledgments?: Record<string, string>;
+  finding_values?: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
+// Structure Tree Wizard
+// ---------------------------------------------------------------------------
+
+export interface PageElement {
+  id: string;
+  page: number;
+  element_type: "text_block" | "image";
+  text?: string;
+  font_size?: number;
+  bold: boolean;
+  suggested_role: string;
+  bbox?: number[];
+}
+
+export interface PageElements {
+  page_number: number;
+  elements: PageElement[];
+}
+
+export interface ExtractElementsResponse {
+  session_id: string;
+  pages: PageElements[];
+  total_elements: number;
+}
+
+export interface ElementAssignment {
+  element_id: string;
+  role: string;
+  alt_text?: string;
+}
+
+export interface BuildStructureTreeResponse {
+  session_id: string;
+  elements_tagged: number;
+  download_url: string;
 }
 
 // ---------------------------------------------------------------------------

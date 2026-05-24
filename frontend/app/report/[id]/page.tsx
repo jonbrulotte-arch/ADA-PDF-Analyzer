@@ -160,6 +160,9 @@ interface CheckItemProps {
   settings: AppSettingsResponse;
   generatingAltTextForCheck: string | null;
   onGenerateAltText: (checkId: string) => void;
+  findingValues: Record<string, string>;
+  onFindingValueChange: (fieldKey: string, value: string) => void;
+  sessionId: string;
 }
 
 function CheckItem({
@@ -173,6 +176,9 @@ function CheckItem({
   settings,
   generatingAltTextForCheck,
   onGenerateAltText,
+  findingValues,
+  onFindingValueChange,
+  sessionId,
 }: CheckItemProps) {
   const [expanded, setExpanded] = useState(false);
   const [ackNote, setAckNote] = useState("");
@@ -261,6 +267,59 @@ function CheckItem({
                 </li>
               ))}
             </ul>
+          )}
+
+          {/* Findings table */}
+          {check.findings && check.findings.length > 0 && check.status !== "pass" && check.status !== "info" && (
+            <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left px-3 py-2 font-semibold text-slate-600 w-16">Page</th>
+                    <th className="text-left px-3 py-2 font-semibold text-slate-600 w-1/4">Element</th>
+                    <th className="text-left px-3 py-2 font-semibold text-slate-600">Issue / Fix</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {check.findings.map((finding) => (
+                    <tr key={finding.id} className="align-top">
+                      <td className="px-3 py-2.5 text-slate-400 font-mono">
+                        {finding.page ?? "—"}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="font-medium text-slate-700">{finding.element_label}</span>
+                        {finding.infringing_text && (
+                          <div className="text-slate-400 mt-0.5 truncate max-w-[160px]" title={finding.infringing_text}>
+                            {finding.infringing_text}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <p className="text-slate-600 mb-1.5">{finding.recommended_fix}</p>
+                        {finding.editor !== "none" && finding.field_key && (
+                          finding.editor === "textarea" ? (
+                            // Alt text is handled by the existing per-figure UI — skip here
+                            null
+                          ) : (
+                            <input
+                              type="text"
+                              value={findingValues[finding.field_key] ?? ""}
+                              placeholder={finding.placeholder ?? ""}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                onFindingValueChange(finding.field_key!, e.target.value);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full text-xs border border-slate-300 rounded-md px-2 py-1.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
+                            />
+                          )
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
 
           {/* Alt text fix UI */}
@@ -439,7 +498,25 @@ function CheckItem({
           {/* Non-fixable, non-fail checks info */}
           {!hasFix && !canAcknowledge && check.status === "fail" && (
             <div className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-600">
-              <span className="font-medium text-slate-700">Manual remediation required.</span> This issue cannot be automatically fixed and requires editing the source document or using specialized PDF authoring tools.
+              {check.category === "structure" && check.name.toLowerCase().includes("tagged") ? (
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-slate-700 mb-1">No structure tree detected.</p>
+                    <p>Use the guided tagging wizard to assign semantic roles to each element and build a structure tree.</p>
+                  </div>
+                  <a
+                    href={`/tag/${sessionId}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                  >
+                    Tag This PDF
+                  </a>
+                </div>
+              ) : (
+                <>
+                  <span className="font-medium text-slate-700">Manual remediation required.</span> This issue cannot be automatically fixed and requires editing the source document or using specialized PDF authoring tools.
+                </>
+              )}
             </div>
           )}
         </div>
@@ -478,6 +555,7 @@ export default function ReportPage() {
   const [settings, setSettings] = useState<AppSettingsResponse>({ ai_alt_text_enabled: false, has_api_key: false });
   const [customAltTexts, setCustomAltTexts] = useState<Record<string, string>>({});
   const [acknowledgments, setAcknowledgments] = useState<Record<string, string>>({});
+  const [findingValues, setFindingValues] = useState<Record<string, string>>({});
   const [generatingAltTextForCheck, setGeneratingAltTextForCheck] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [reanalysisResult, setReanalysisResult] = useState<ReanalyzeResponse | null>(null);
@@ -506,6 +584,7 @@ export default function ReportPage() {
         setApprovedIds(new Set(stateData.approved_fix_ids));
         setCustomAltTexts(stateData.custom_alt_texts ?? {});
         setAcknowledgments(stateData.acknowledgments ?? {});
+        setFindingValues(stateData.finding_values ?? {});
       }
 
       setLoading(false);
@@ -529,13 +608,14 @@ export default function ReportPage() {
         approved_fix_ids: Array.from(approvedIds),
         custom_alt_texts: customAltTexts,
         acknowledgments,
+        finding_values: findingValues,
       }).catch(() => {
         // Silent fail — state save is best-effort
       });
     }, 800);
 
     return () => clearTimeout(timer);
-  }, [sessionId, approvedIds, customAltTexts, acknowledgments]);
+  }, [sessionId, approvedIds, customAltTexts, acknowledgments, findingValues]);
 
   // ---------------------------------------------------------------------------
   // Page unload save via sendBeacon
@@ -549,6 +629,7 @@ export default function ReportPage() {
         approved_fix_ids: Array.from(approvedIds),
         custom_alt_texts: customAltTexts,
         acknowledgments,
+        finding_values: findingValues,
       });
       const blob = new Blob([payload], { type: "application/json" });
       navigator.sendBeacon(`/api/session/${sessionId}/state`, blob);
@@ -556,7 +637,7 @@ export default function ReportPage() {
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [sessionId, approvedIds, customAltTexts, acknowledgments]);
+  }, [sessionId, approvedIds, customAltTexts, acknowledgments, findingValues]);
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -577,6 +658,10 @@ export default function ReportPage() {
 
   const handleAcknowledge = useCallback((checkId: string, note: string) => {
     setAcknowledgments((prev) => ({ ...prev, [checkId]: note }));
+  }, []);
+
+  const handleFindingValueChange = useCallback((fieldKey: string, value: string) => {
+    setFindingValues((prev) => ({ ...prev, [fieldKey]: value }));
   }, []);
 
   const handleGenerateAltText = useCallback(async (checkId: string) => {
@@ -612,7 +697,8 @@ export default function ReportPage() {
         sessionId,
         Array.from(approvedIds),
         customAltTexts,
-        acknowledgments
+        acknowledgments,
+        findingValues
       );
       setChangesMade(resp.changes_made);
       setDownloadReady(true);
@@ -960,6 +1046,9 @@ export default function ReportPage() {
             settings={settings}
             generatingAltTextForCheck={generatingAltTextForCheck}
             onGenerateAltText={handleGenerateAltText}
+            findingValues={findingValues}
+            onFindingValueChange={handleFindingValueChange}
+            sessionId={sessionId}
           />
         ))}
       </div>

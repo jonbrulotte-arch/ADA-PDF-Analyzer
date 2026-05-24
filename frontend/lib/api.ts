@@ -5,6 +5,9 @@ import type {
   AppSettingsResponse,
   BatchManifest,
   BatchSessionSummary,
+  BuildStructureTreeResponse,
+  ElementAssignment,
+  ExtractElementsResponse,
   HistoryEntry,
   PatchStateRequest,
   ReanalyzeResponse,
@@ -47,7 +50,8 @@ export async function remediatePdf(
   sessionId: string,
   approvedFixIds: string[],
   customAltTexts?: Record<string, string>,
-  acknowledgments?: Record<string, string>
+  acknowledgments?: Record<string, string>,
+  findingValues?: Record<string, string>
 ): Promise<RemediateResponse> {
   const res = await fetch(`/api/remediate/${sessionId}`, {
     method: "POST",
@@ -56,6 +60,7 @@ export async function remediatePdf(
       approved_fix_ids: approvedFixIds,
       ...(customAltTexts && Object.keys(customAltTexts).length > 0 ? { custom_alt_texts: customAltTexts } : {}),
       ...(acknowledgments && Object.keys(acknowledgments).length > 0 ? { acknowledgments } : {}),
+      ...(findingValues && Object.keys(findingValues).length > 0 ? { finding_values: findingValues } : {}),
     }),
   });
   return handleResponse<RemediateResponse>(res);
@@ -151,6 +156,27 @@ export async function batchUpload(files: File[]): Promise<{ batch_id: string; se
 export async function getBatch(batchId: string): Promise<BatchManifest> {
   const res = await fetch(`/api/batch/${batchId}`);
   return handleResponse<BatchManifest>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Structure Tree Wizard
+// ---------------------------------------------------------------------------
+
+export async function extractElements(sessionId: string): Promise<ExtractElementsResponse> {
+  const res = await fetch(`/api/session/${sessionId}/elements`);
+  return handleResponse<ExtractElementsResponse>(res);
+}
+
+export async function buildStructureTree(
+  sessionId: string,
+  assignments: ElementAssignment[]
+): Promise<BuildStructureTreeResponse> {
+  const res = await fetch(`/api/session/${sessionId}/build-structure-tree`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assignments }),
+  });
+  return handleResponse<BuildStructureTreeResponse>(res);
 }
 
 // ---------------------------------------------------------------------------
