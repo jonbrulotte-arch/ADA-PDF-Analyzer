@@ -37,6 +37,83 @@ class Finding(BaseModel):
     placeholder: Optional[str] = None  # editor placeholder/default
 
 
+class ProjectStatus(str, Enum):
+    ACTIVE     = "active"
+    IN_REVIEW  = "in_review"
+    REMEDIATED = "remediated"
+    APPROVED   = "approved"
+    ARCHIVED   = "archived"
+
+
+class ProjectRevision(BaseModel):
+    session_id:   str
+    filename:     str
+    score:        int
+    grade:        str
+    page_count:   int
+    file_size_kb: int
+    created_at:   str
+    label:        str = ""   # e.g. "v1", "After OCR", "Client copy"
+    notes:        str = ""
+
+
+class Project(BaseModel):
+    project_id:  str
+    name:        str
+    description: str = ""
+    assignee:    str = ""
+    status:      ProjectStatus = ProjectStatus.ACTIVE
+    tags:        List[str] = []
+    created_at:  str
+    updated_at:  str
+    revisions:   List[ProjectRevision] = []   # newest first
+
+
+class ProjectSummary(BaseModel):
+    project_id:     str
+    name:           str
+    assignee:       str
+    status:         ProjectStatus
+    tags:           List[str]
+    latest_score:   Optional[int] = None
+    latest_grade:   Optional[str] = None
+    revision_count: int
+    created_at:     str
+    updated_at:     str
+
+
+class CreateProjectRequest(BaseModel):
+    name:        str
+    description: str = ""
+    assignee:    str = ""
+    status:      ProjectStatus = ProjectStatus.ACTIVE
+    tags:        List[str] = []
+
+
+class PatchProjectRequest(BaseModel):
+    name:        Optional[str] = None
+    description: Optional[str] = None
+    assignee:    Optional[str] = None
+    status:      Optional[ProjectStatus] = None
+    tags:        Optional[List[str]] = None
+
+
+class PatchRevisionRequest(BaseModel):
+    label: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class LinkSessionRequest(BaseModel):
+    session_id: str
+    label:      str = ""
+    notes:      str = ""
+
+
+class ProjectListResponse(BaseModel):
+    projects: List[ProjectSummary]
+    total:    int
+
+
 class FixAction(BaseModel):
     id: str
     description: str
@@ -85,6 +162,7 @@ class UploadResponse(BaseModel):
     filename: str
     page_count: int
     file_size_kb: int
+    project_id: str = ""
 
 
 class RemediateRequest(BaseModel):

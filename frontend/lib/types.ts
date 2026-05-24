@@ -65,9 +65,58 @@ export interface AccessibilityReport {
 
 export interface UploadResponse {
   session_id: string;
+  project_id: string;
   filename: string;
   page_count: number;
   file_size_kb: number;
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export type ProjectStatus = "active" | "in_review" | "remediated" | "approved" | "archived";
+
+export interface ProjectRevision {
+  session_id:   string;
+  filename:     string;
+  score:        number;
+  grade:        string;
+  page_count:   number;
+  file_size_kb: number;
+  created_at:   string;
+  label:        string;
+  notes:        string;
+}
+
+export interface Project {
+  project_id:  string;
+  name:        string;
+  description: string;
+  assignee:    string;
+  status:      ProjectStatus;
+  tags:        string[];
+  created_at:  string;
+  updated_at:  string;
+  revisions:   ProjectRevision[];
+}
+
+export interface ProjectSummary {
+  project_id:     string;
+  name:           string;
+  assignee:       string;
+  status:         ProjectStatus;
+  tags:           string[];
+  latest_score:   number | null;
+  latest_grade:   string | null;
+  revision_count: number;
+  created_at:     string;
+  updated_at:     string;
+}
+
+export interface ProjectListResponse {
+  projects: ProjectSummary[];
+  total:    number;
 }
 
 export interface RemediateResponse {

@@ -10,6 +10,9 @@ import type {
   ExtractElementsResponse,
   HistoryEntry,
   PatchStateRequest,
+  Project,
+  ProjectListResponse,
+  ProjectRevision,
   ReanalyzeResponse,
   RemediateResponse,
   SessionState,
@@ -34,10 +37,10 @@ async function handleResponse<T>(res: Response): Promise<T> {
 // PDF Upload & Report
 // ---------------------------------------------------------------------------
 
-export async function uploadPdf(file: File): Promise<UploadResponse> {
+export async function uploadPdf(file: File, url?: string): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch("/api/upload", { method: "POST", body: form });
+  const res = await fetch(url ?? "/api/upload", { method: "POST", body: form });
   return handleResponse<UploadResponse>(res);
 }
 
@@ -177,6 +180,74 @@ export async function buildStructureTree(
     body: JSON.stringify({ assignments }),
   });
   return handleResponse<BuildStructureTreeResponse>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export async function getProjects(params?: {
+  search?: string; status?: string; assignee?: string;
+  sort?: string; order?: string; limit?: number; offset?: number;
+}): Promise<ProjectListResponse> {
+  const q = new URLSearchParams();
+  if (params?.search)   q.set("search",   params.search);
+  if (params?.status)   q.set("status",   params.status);
+  if (params?.assignee) q.set("assignee", params.assignee);
+  if (params?.sort)     q.set("sort",     params.sort);
+  if (params?.order)    q.set("order",    params.order);
+  if (params?.limit != null)  q.set("limit",  String(params.limit));
+  if (params?.offset != null) q.set("offset", String(params.offset));
+  const res = await fetch(`/api/projects?${q}`);
+  return handleResponse<ProjectListResponse>(res);
+}
+
+export async function getProject(projectId: string): Promise<Project> {
+  const res = await fetch(`/api/projects/${projectId}`);
+  return handleResponse<Project>(res);
+}
+
+export async function createProject(body: {
+  name: string; description?: string; assignee?: string; status?: string; tags?: string[];
+}): Promise<Project> {
+  const res = await fetch("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<Project>(res);
+}
+
+export async function patchProject(projectId: string, patch: {
+  name?: string; description?: string; assignee?: string; status?: string; tags?: string[];
+}): Promise<Project> {
+  const res = await fetch(`/api/projects/${projectId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return handleResponse<Project>(res);
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  const res = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) return handleResponse<void>(res);
+}
+
+export async function patchRevision(projectId: string, sessionId: string, patch: {
+  label?: string; notes?: string;
+}): Promise<ProjectRevision> {
+  const res = await fetch(`/api/projects/${projectId}/revisions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return handleResponse<ProjectRevision>(res);
+}
+
+export async function deleteRevision(projectId: string, sessionId: string): Promise<void> {
+  const res = await fetch(`/api/projects/${projectId}/revisions/${sessionId}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) return handleResponse<void>(res);
 }
 
 // ---------------------------------------------------------------------------

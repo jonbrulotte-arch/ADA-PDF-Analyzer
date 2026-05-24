@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getHistory, deleteHistory } from "@/lib/api";
-import type { HistoryEntry } from "@/lib/types";
-import { ArrowLeft, Upload, FileText, Loader2, XCircle, Trash2 } from "lucide-react";
+import { getProjects, deleteProject } from "@/lib/api";
+import type { ProjectSummary, ProjectStatus } from "@/lib/types";
+import { ArrowLeft, Upload, FolderOpen, Loader2, XCircle, Trash2, ChevronRight } from "lucide-react";
 
 function cx(...classes: (string | false | undefined | null)[]): string {
   return classes.filter(Boolean).join(" ");
@@ -41,32 +41,70 @@ function gradeBadge(grade: string): string {
   return "bg-red-100 text-red-700";
 }
 
+const STATUS_STYLES: Record<ProjectStatus, string> = {
+  active:     "bg-blue-100 text-blue-700",
+  in_review:  "bg-amber-100 text-amber-700",
+  remediated: "bg-indigo-100 text-indigo-700",
+  approved:   "bg-emerald-100 text-emerald-700",
+  archived:   "bg-slate-100 text-slate-500",
+};
+
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "",           label: "All statuses" },
+  { value: "active",     label: "Active" },
+  { value: "in_review",  label: "In Review" },
+  { value: "remediated", label: "Remediated" },
+  { value: "approved",   label: "Approved" },
+  { value: "archived",   label: "Archived" },
+];
+
 export default function HistoryPage() {
   const router = useRouter();
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+
+  const fetchProjects = (q: string, status: string) => {
+    setLoading(true);
+    getProjects({
+      search: q || undefined,
+      status: status || undefined,
+      sort: "updated_at",
+      order: "desc",
+      limit: 50,
+      offset: 0,
+    })
+      .then(({ projects: p, total: t }) => { setProjects(p); setTotal(t); })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load projects."))
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    setLoading(true);
-    getHistory(50, 0)
-      .then(({ entries: e, total: t }) => { setEntries(e); setTotal(t); })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load history."))
-      .finally(() => setLoading(false));
+    fetchProjects(search, statusFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleDelete = async (e: React.MouseEvent, sessionId: string) => {
+  // Debounced search
+  useEffect(() => {
+    const t = setTimeout(() => fetchProjects(search, statusFilter), 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, statusFilter]);
+
+  const handleDelete = async (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();
-    if (!confirm("Remove this entry from history?")) return;
-    setDeleting(sessionId);
+    if (!confirm("Delete this project and all its revisions?")) return;
+    setDeleting(projectId);
     try {
-      await deleteHistory(sessionId);
-      setEntries((prev) => prev.filter((en) => en.session_id !== sessionId));
+      await deleteProject(projectId);
+      setProjects((prev) => prev.filter((p) => p.project_id !== projectId));
       setTotal((t) => t - 1);
     } catch {
-      // silently ignore — entry may already be gone
+      // silently ignore
     } finally {
       setDeleting(null);
     }
@@ -78,17 +116,38 @@ export default function HistoryPage() {
         <ArrowLeft className="w-4 h-4" /> Upload a PDF
       </Link>
 
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Analysis History</h1>
-        {!loading && !error && total > 0 && (
-          <p className="text-sm text-slate-500 mt-1">{total} document{total !== 1 ? "s" : ""} analyzed</p>
-        )}
+      <div className="mb-5 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex-1">
+          <h1 className="text-2xl font-bold text-slate-900">Projects</h1>
+          {!loading && !error && total > 0 && (
+            <p className="text-sm text-slate-500 mt-0.5">{total} project{total !== 1 ? "s" : ""}</p>
+          )}
+        </div>
+        {/* Filters */}
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search projects…"
+            className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent w-48"
+          />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent bg-white"
+          >
+            {STATUS_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {loading && (
         <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-500">
           <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-          <p className="text-sm">Loading history…</p>
+          <p className="text-sm">Loading projects…</p>
         </div>
       )}
 
@@ -102,65 +161,83 @@ export default function HistoryPage() {
         </div>
       )}
 
-      {!loading && !error && entries.length === 0 && (
+      {!loading && !error && projects.length === 0 && (
         <div className="flex flex-col items-center justify-center py-24 gap-5 text-center">
           <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center">
-            <FileText className="w-8 h-8 text-slate-400" />
+            <FolderOpen className="w-8 h-8 text-slate-400" />
           </div>
           <div>
-            <p className="text-lg font-semibold text-slate-700">No PDFs analyzed yet</p>
-            <p className="text-sm text-slate-400 mt-1">Upload your first PDF to get started.</p>
+            <p className="text-lg font-semibold text-slate-700">
+              {search || statusFilter ? "No matching projects" : "No projects yet"}
+            </p>
+            <p className="text-sm text-slate-400 mt-1">
+              {search || statusFilter ? "Try adjusting your filters." : "Upload a PDF to get started."}
+            </p>
           </div>
-          <Link href="/" className="inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-semibold text-sm hover:bg-indigo-700 transition-colors shadow-sm">
-            <Upload className="w-4 h-4" /> Upload a PDF
-          </Link>
+          {!search && !statusFilter && (
+            <Link href="/" className="inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-semibold text-sm hover:bg-indigo-700 transition-colors shadow-sm">
+              <Upload className="w-4 h-4" /> Upload a PDF
+            </Link>
+          )}
         </div>
       )}
 
-      {!loading && !error && entries.length > 0 && (
+      {!loading && !error && projects.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="hidden sm:grid grid-cols-[1fr_80px_64px_60px_100px_40px] gap-4 px-5 py-3 border-b border-slate-100 bg-slate-50">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filename</span>
+          {/* Table header */}
+          <div className="hidden sm:grid grid-cols-[1fr_120px_100px_80px_64px_100px_40px] gap-4 px-5 py-3 border-b border-slate-100 bg-slate-50">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Name</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Assignee</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</span>
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide text-center">Score</span>
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide text-center">Grade</span>
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide text-center">Pages</span>
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide text-right">Date</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide text-right">Updated</span>
             <span />
           </div>
 
           <div className="divide-y divide-slate-100">
-            {entries.map((entry) => (
+            {projects.map((project) => (
               <div
-                key={entry.session_id}
+                key={project.project_id}
                 className={cx(
                   "group flex items-center hover:bg-indigo-50/40 transition-colors",
-                  deleting === entry.session_id ? "opacity-40 pointer-events-none" : ""
+                  deleting === project.project_id ? "opacity-40 pointer-events-none" : ""
                 )}
               >
-                {/* Clickable area */}
+                {/* Clickable row */}
                 <button
                   className="flex-1 text-left min-w-0"
-                  onClick={() => router.push(`/report/${entry.session_id}`)}
+                  onClick={() => router.push(`/project/${project.project_id}`)}
                 >
                   {/* Desktop */}
-                  <div className="hidden sm:grid grid-cols-[1fr_80px_64px_60px_100px] gap-4 px-5 py-4 items-center">
+                  <div className="hidden sm:grid grid-cols-[1fr_120px_100px_80px_64px_100px] gap-4 px-5 py-4 items-center">
                     <div className="min-w-0 flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-slate-300 flex-shrink-0" />
-                      <span className="text-sm font-medium text-slate-800 truncate">{entry.filename}</span>
+                      <FolderOpen className="w-4 h-4 text-slate-300 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">{project.name}</p>
+                        <p className="text-xs text-slate-400">{project.revision_count} revision{project.revision_count !== 1 ? "s" : ""}</p>
+                      </div>
                     </div>
-                    <div className="text-center">
-                      <span className={cx("text-base font-bold", scoreColor(entry.score))}>{entry.score}</span>
-                    </div>
-                    <div className="flex justify-center">
-                      <span className={cx("text-xs font-semibold px-2 py-0.5 rounded-full", gradeBadge(entry.grade))}>
-                        {entry.grade}
+                    <div className="text-sm text-slate-500 truncate">{project.assignee || <span className="text-slate-300">—</span>}</div>
+                    <div>
+                      <span className={cx("text-xs font-medium px-2 py-0.5 rounded-full", STATUS_STYLES[project.status] ?? "bg-slate-100 text-slate-500")}>
+                        {project.status.replace("_", " ")}
                       </span>
                     </div>
                     <div className="text-center">
-                      <span className="text-sm text-slate-500">{entry.page_count}</span>
+                      {project.latest_score != null
+                        ? <span className={cx("text-base font-bold", scoreColor(project.latest_score))}>{project.latest_score}</span>
+                        : <span className="text-slate-300 text-sm">—</span>
+                      }
+                    </div>
+                    <div className="flex justify-center">
+                      {project.latest_grade
+                        ? <span className={cx("text-xs font-semibold px-2 py-0.5 rounded-full", gradeBadge(project.latest_grade))}>{project.latest_grade}</span>
+                        : <span className="text-slate-300 text-sm">—</span>
+                      }
                     </div>
                     <div className="text-right">
-                      <span className="text-xs text-slate-400">{timeAgo(entry.created_at)}</span>
+                      <span className="text-xs text-slate-400">{timeAgo(project.updated_at)}</span>
                     </div>
                   </div>
 
@@ -168,12 +245,19 @@ export default function HistoryPage() {
                   <div className="sm:hidden px-4 py-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-slate-800 truncate">{entry.filename}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">{entry.page_count} pages · {timeAgo(entry.created_at)}</p>
+                        <p className="text-sm font-medium text-slate-800 truncate">{project.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className={cx("text-xs font-medium px-1.5 py-0.5 rounded", STATUS_STYLES[project.status] ?? "bg-slate-100 text-slate-500")}>
+                            {project.status.replace("_", " ")}
+                          </span>
+                          <span className="text-xs text-slate-400">{project.revision_count} rev · {timeAgo(project.updated_at)}</span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className={cx("text-lg font-bold", scoreColor(entry.score))}>{entry.score}</span>
-                        <span className={cx("text-xs font-semibold px-2 py-0.5 rounded-full", gradeBadge(entry.grade))}>{entry.grade}</span>
+                        {project.latest_score != null && (
+                          <span className={cx("text-lg font-bold", scoreColor(project.latest_score))}>{project.latest_score}</span>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-slate-300" />
                       </div>
                     </div>
                   </div>
@@ -182,12 +266,12 @@ export default function HistoryPage() {
                 {/* Delete button */}
                 <div className="px-3 flex-shrink-0">
                   <button
-                    onClick={(e) => handleDelete(e, entry.session_id)}
-                    disabled={deleting === entry.session_id}
+                    onClick={(e) => handleDelete(e, project.project_id)}
+                    disabled={deleting === project.project_id}
                     className="p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-                    title="Remove from history"
+                    title="Delete project"
                   >
-                    {deleting === entry.session_id
+                    {deleting === project.project_id
                       ? <Loader2 className="w-4 h-4 animate-spin" />
                       : <Trash2 className="w-4 h-4" />
                     }
