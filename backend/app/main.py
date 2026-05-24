@@ -11,6 +11,8 @@ from fastapi.responses import FileResponse, Response
 
 from .alt_text_generator import generate_alt_texts
 from .analyzer import analyze_pdf
+from .element_extractor import extract_elements
+from .structure_builder import build_structure_tree
 from .models import (
     AccessibilityReport,
     AltTextResponse,
@@ -541,6 +543,56 @@ def get_batch(batch_id: str):
     if manifest is None:
         raise HTTPException(404, f"Batch {batch_id} not found.")
     return manifest
+
+
+# ---------------------------------------------------------------------------
+# Routes — Structure Tree Tagging Wizard
+# ---------------------------------------------------------------------------
+
+@app.get("/api/session/{session_id}/elements")
+def get_elements(session_id: str):
+    """Extract page elements for the structure tree tagging wizard."""
+    pdf_path = _session_dir(session_id) / "original.pdf"
+    if not pdf_path.exists():
+        raise HTTPException(404, "No uploaded PDF found for this session.")
+    try:
+        result = extract_elements(str(pdf_path))
+        return {"session_id": session_id, **result}
+    except Exception as e:
+        raise HTTPException(500, f"Element extraction failed: {e}")
+
+
+@app.post("/api/session/{session_id}/build-structure-tree")
+def build_structure_tree_endpoint(session_id: str, body: dict):
+    """Build and inject a structure tree based on user element assignments."""
+    assignments = body.get("assignments", [])
+    if not assignments:
+        raise HTTPException(400, "assignments list is required.")
+
+    pdf_path = _session_dir(session_id) / "original.pdf"
+    if not pdf_path.exists():
+        raise HTTPException(404, "No uploaded PDF found for this session.")
+
+    output_path = str(STORAGE_DIR / "remediated" / f"{session_id}.pdf")
+
+    try:
+        tagged_count = build_structure_tree(str(pdf_path), output_path, assignments)
+    except Exception as e:
+        raise HTTPException(500, f"Structure tree build failed: {e}")
+
+    # Update session state
+    try:
+        state = get_or_create_state(session_id)
+        state.approved_fix_ids = list(set(state.approved_fix_ids + ["structure_tree_built"]))
+        save_state(state)
+    except Exception:
+        pass
+
+    return {
+        "session_id": session_id,
+        "elements_tagged": tagged_count,
+        "download_url": f"/api/download/{session_id}",
+    }
 
 
 # ---------------------------------------------------------------------------
