@@ -1,9 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getReport, remediatePdf, downloadUrl } from "@/lib/api";
-import type { AccessibilityCheck, AccessibilityReport, CheckStatus, Severity } from "@/lib/types";
+import {
+  getReport,
+  remediatePdf,
+  downloadUrl,
+  getSettings,
+  getSessionState,
+  patchSessionState,
+  generateAltText,
+  reanalyze,
+  exportHtmlReportUrl,
+} from "@/lib/api";
+import type {
+  AccessibilityCheck,
+  AccessibilityReport,
+  AppSettingsResponse,
+  CheckStatus,
+  ReanalyzeResponse,
+  Severity,
+} from "@/lib/types";
 import {
   CheckCircle2,
   XCircle,
@@ -18,6 +35,8 @@ import {
   Check,
   X,
   Sparkles,
+  Link2,
+  RefreshCw,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -80,8 +99,10 @@ const CATEGORY_LABELS: Record<string, string> = {
 // Score Circle
 // ---------------------------------------------------------------------------
 
-function ScoreCircle({ score, grade }: { score: number; grade: string }) {
-  const radius = 54;
+function ScoreCircle({ score, grade, size = "lg" }: { score: number; grade: string; size?: "sm" | "lg" }) {
+  const radius = size === "sm" ? 36 : 54;
+  const viewBox = size === "sm" ? "0 0 88 88" : "0 0 128 128";
+  const cx64 = size === "sm" ? 44 : 64;
   const circumference = 2 * Math.PI * radius;
   const filled = (score / 100) * circumference;
 
@@ -90,17 +111,20 @@ function ScoreCircle({ score, grade }: { score: number; grade: string }) {
   const gradeBg =
     score >= 75 ? "text-emerald-600" : score >= 50 ? "text-amber-500" : "text-red-500";
 
+  const containerClass = size === "sm" ? "w-[88px] h-[88px]" : "w-32 h-32";
+  const scoreClass = size === "sm" ? "text-xl" : "text-3xl";
+
   return (
-    <div className="relative w-32 h-32 flex-shrink-0">
-      <svg className="w-full h-full -rotate-90" viewBox="0 0 128 128">
-        <circle cx="64" cy="64" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="12" />
+    <div className={cx("relative flex-shrink-0", containerClass)}>
+      <svg className="w-full h-full -rotate-90" viewBox={viewBox}>
+        <circle cx={cx64} cy={cx64} r={radius} fill="none" stroke="#e2e8f0" strokeWidth="10" />
         <circle
-          cx="64"
-          cy="64"
+          cx={cx64}
+          cy={cx64}
           r={radius}
           fill="none"
           stroke={color}
-          strokeWidth="12"
+          strokeWidth="10"
           strokeDasharray={circumference}
           strokeDashoffset={circumference - filled}
           strokeLinecap="round"
@@ -108,8 +132,8 @@ function ScoreCircle({ score, grade }: { score: number; grade: string }) {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={cx("text-3xl font-extrabold", gradeBg)}>{score}</span>
-        <span className="text-xs text-slate-400 -mt-1">/ 100</span>
+        <span className={cx("font-extrabold", scoreClass, gradeBg)}>{score}</span>
+        <span className="text-xs text-slate-400 -mt-0.5">/ 100</span>
       </div>
     </div>
   );
@@ -119,18 +143,69 @@ function ScoreCircle({ score, grade }: { score: number; grade: string }) {
 // Check Item
 // ---------------------------------------------------------------------------
 
+interface FigureItem {
+  index: number;
+  page?: number;
+  description?: string;
+}
+
+interface CheckItemProps {
+  check: AccessibilityCheck;
+  approved: boolean;
+  onToggleApprove: (id: string) => void;
+  customAltTexts: Record<string, string>;
+  onAltTextChange: (figureIndexStr: string, text: string) => void;
+  acknowledgments: Record<string, string>;
+  onAcknowledge: (checkId: string, note: string) => void;
+  settings: AppSettingsResponse;
+  generatingAltTextForCheck: string | null;
+  onGenerateAltText: (checkId: string) => void;
+}
+
 function CheckItem({
   check,
   approved,
   onToggleApprove,
-}: {
-  check: AccessibilityCheck;
-  approved: boolean;
-  onToggleApprove: (id: string) => void;
-}) {
+  customAltTexts,
+  onAltTextChange,
+  acknowledgments,
+  onAcknowledge,
+  settings,
+  generatingAltTextForCheck,
+  onGenerateAltText,
+}: CheckItemProps) {
   const [expanded, setExpanded] = useState(false);
+  const [ackNote, setAckNote] = useState("");
+  const [editingAck, setEditingAck] = useState(false);
+
   const meta = STATUS_META[check.status];
   const hasFix = !!check.fix && check.fix.auto_fixable;
+  const isAltTextCheck = check.fix?.fix_type === "alt_text";
+  const isGenerating = generatingAltTextForCheck === check.id;
+
+  // Determine figures missing from fix_data
+  const figuresMissing: FigureItem[] = useMemo(() => {
+    if (!isAltTextCheck || !check.fix) return [];
+    const fd = check.fix.fix_data as Record<string, unknown>;
+    const arr = fd.figures_missing;
+    if (Array.isArray(arr)) return arr as FigureItem[];
+    return [];
+  }, [isAltTextCheck, check.fix]);
+
+  const fixDataAltTexts: Record<string, string> = useMemo(() => {
+    if (!isAltTextCheck || !check.fix) return {};
+    const fd = check.fix.fix_data as Record<string, unknown>;
+    return (fd.alt_texts as Record<string, string>) ?? {};
+  }, [isAltTextCheck, check.fix]);
+
+  const existingAck = acknowledgments[check.id];
+  const canAcknowledge = check.status === "fail" && (!check.fix || !check.fix.auto_fixable);
+
+  const handleAcknowledgeSubmit = () => {
+    onAcknowledge(check.id, ackNote.trim());
+    setEditingAck(false);
+    setAckNote("");
+  };
 
   return (
     <div className={cx("border rounded-xl overflow-hidden transition-all", meta.border)}>
@@ -150,6 +225,11 @@ function CheckItem({
             </span>
             {check.wcag_criterion && (
               <span className="text-xs text-slate-400 font-mono">WCAG {check.wcag_criterion}</span>
+            )}
+            {existingAck && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                Acknowledged
+              </span>
             )}
           </div>
           <p className="text-sm text-slate-600">{check.description}</p>
@@ -183,7 +263,93 @@ function CheckItem({
             </ul>
           )}
 
-          {hasFix && check.status !== "pass" && check.fix && (
+          {/* Alt text fix UI */}
+          {isAltTextCheck && check.status === "fail" && check.fix && (
+            <div className="mt-4 space-y-4">
+              <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> Alt Text Required
+                    <span className="ml-1 text-indigo-500 font-normal">
+                      ({figuresMissing.length} image{figuresMissing.length !== 1 ? "s" : ""} missing alt text)
+                    </span>
+                  </p>
+                  {settings.ai_alt_text_enabled && settings.has_api_key && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onGenerateAltText(check.id); }}
+                      disabled={isGenerating}
+                      className={cx(
+                        "inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all",
+                        isGenerating
+                          ? "bg-indigo-100 text-indigo-400 cursor-not-allowed"
+                          : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+                      )}
+                    >
+                      {isGenerating ? (
+                        <><Loader2 className="w-3 h-3 animate-spin" /> Generating…</>
+                      ) : (
+                        <><Sparkles className="w-3 h-3" /> Generate with AI</>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Per-figure textareas */}
+              {figuresMissing.map((figure) => {
+                const key = String(figure.index);
+                const placeholder = fixDataAltTexts[key] ?? "";
+                const value = customAltTexts[key] ?? "";
+                const charCount = value.length;
+                return (
+                  <div key={key} className="space-y-1.5">
+                    <label className="block text-xs font-medium text-slate-700">
+                      Image #{figure.index + 1}
+                      {figure.page !== undefined && (
+                        <span className="font-normal text-slate-400 ml-1">(page {figure.page})</span>
+                      )}
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={value}
+                      placeholder={placeholder || "Describe this image for screen reader users…"}
+                      onChange={(e) => onAltTextChange(key, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 resize-y focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
+                    />
+                    <p className={cx("text-xs text-right", charCount > 150 ? "text-amber-500" : "text-slate-400")}>
+                      {charCount} / 150 chars suggested
+                    </p>
+                  </div>
+                );
+              })}
+
+              {/* Standard approve button for the fix */}
+              <div className="flex items-start justify-between gap-4 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-slate-700">{check.fix.description}</p>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onToggleApprove(check.fix!.id); }}
+                  className={cx(
+                    "flex-shrink-0 flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg transition-all",
+                    approved
+                      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "bg-white text-slate-700 border border-slate-300 hover:border-indigo-400 hover:text-indigo-600"
+                  )}
+                >
+                  {approved ? (
+                    <><Check className="w-3.5 h-3.5" /> Approved</>
+                  ) : (
+                    <>Approve Fix</>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Standard auto-fixable (non-alt-text) */}
+          {hasFix && !isAltTextCheck && check.status !== "pass" && check.fix && (
             <div className="mt-4 flex items-start justify-between gap-4 bg-indigo-50 border border-indigo-100 rounded-lg p-3">
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-indigo-700 mb-0.5 flex items-center gap-1">
@@ -209,7 +375,69 @@ function CheckItem({
             </div>
           )}
 
-          {!hasFix && check.status === "fail" && (
+          {/* Acknowledge section for non-auto-fixable failures */}
+          {canAcknowledge && (
+            <div className="mt-4">
+              {existingAck && !editingAck ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-emerald-700 flex items-center gap-1 mb-1">
+                        <Check className="w-3 h-3" /> Acknowledged
+                      </p>
+                      {existingAck && (
+                        <p className="text-sm text-slate-700">{existingAck}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setAckNote(existingAck); setEditingAck(true); }}
+                      className="text-xs text-emerald-600 hover:text-emerald-800 underline underline-offset-2 flex-shrink-0"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-semibold text-slate-700">
+                    {editingAck ? "Edit Acknowledgment" : "Manual remediation required"}
+                  </p>
+                  {!editingAck && (
+                    <p className="text-sm text-slate-600">
+                      This issue cannot be automatically fixed. You can acknowledge it with a note.
+                    </p>
+                  )}
+                  <textarea
+                    rows={2}
+                    value={editingAck ? ackNote : ackNote}
+                    placeholder="Add a note (e.g. tracked in Jira, will fix in v2…)"
+                    onChange={(e) => setAckNote(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleAcknowledgeSubmit(); }}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                    >
+                      <Check className="w-3 h-3" /> Mark Acknowledged
+                    </button>
+                    {editingAck && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setEditingAck(false); setAckNote(""); }}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 hover:text-slate-800 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Non-fixable, non-fail checks info */}
+          {!hasFix && !canAcknowledge && check.status === "fail" && (
             <div className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-600">
               <span className="font-medium text-slate-700">Manual remediation required.</span> This issue cannot be automatically fixed and requires editing the source document or using specialized PDF authoring tools.
             </div>
@@ -231,26 +459,108 @@ export default function ReportPage() {
   const router = useRouter();
   const sessionId = params.id as string;
 
+  // Core report state
   const [report, setReport] = useState<AccessibilityReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Fix approval state
   const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<ActiveTab>("all");
 
+  // Remediation state
   const [remediating, setRemediating] = useState(false);
   const [remediateError, setRemediateError] = useState<string | null>(null);
   const [downloadReady, setDownloadReady] = useState(false);
   const [changesMade, setChangesMade] = useState<string[]>([]);
 
-  // Fetch report
+  // New state
+  const [settings, setSettings] = useState<AppSettingsResponse>({ ai_alt_text_enabled: false, has_api_key: false });
+  const [customAltTexts, setCustomAltTexts] = useState<Record<string, string>>({});
+  const [acknowledgments, setAcknowledgments] = useState<Record<string, string>>({});
+  const [generatingAltTextForCheck, setGeneratingAltTextForCheck] = useState<string | null>(null);
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [reanalysisResult, setReanalysisResult] = useState<ReanalyzeResponse | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Ref to track initial load (skip first debounce save)
+  const initialLoadDone = useRef(false);
+
+  // ---------------------------------------------------------------------------
+  // On mount: parallel fetches
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
     if (!sessionId) return;
     setLoading(true);
-    getReport(sessionId)
-      .then((r) => { setReport(r); setLoading(false); })
-      .catch((e) => { setLoadError(e.message); setLoading(false); });
+
+    Promise.all([
+      getReport(sessionId),
+      getSettings().catch(() => ({ ai_alt_text_enabled: false, has_api_key: false } as AppSettingsResponse)),
+      getSessionState(sessionId).catch(() => null),
+    ]).then(([reportData, settingsData, stateData]) => {
+      setReport(reportData);
+      setSettings(settingsData);
+
+      if (stateData) {
+        setApprovedIds(new Set(stateData.approved_fix_ids));
+        setCustomAltTexts(stateData.custom_alt_texts ?? {});
+        setAcknowledgments(stateData.acknowledgments ?? {});
+      }
+
+      setLoading(false);
+      // Mark initial load done after state is set (next tick)
+      setTimeout(() => { initialLoadDone.current = true; }, 0);
+    }).catch((e) => {
+      setLoadError(e.message);
+      setLoading(false);
+    });
   }, [sessionId]);
+
+  // ---------------------------------------------------------------------------
+  // Debounced state save (800ms)
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+
+    const timer = setTimeout(() => {
+      patchSessionState(sessionId, {
+        approved_fix_ids: Array.from(approvedIds),
+        custom_alt_texts: customAltTexts,
+        acknowledgments,
+      }).catch(() => {
+        // Silent fail — state save is best-effort
+      });
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [sessionId, approvedIds, customAltTexts, acknowledgments]);
+
+  // ---------------------------------------------------------------------------
+  // Page unload save via sendBeacon
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const handleBeforeUnload = () => {
+      const payload = JSON.stringify({
+        approved_fix_ids: Array.from(approvedIds),
+        custom_alt_texts: customAltTexts,
+        acknowledgments,
+      });
+      const blob = new Blob([payload], { type: "application/json" });
+      navigator.sendBeacon(`/api/session/${sessionId}/state`, blob);
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [sessionId, approvedIds, customAltTexts, acknowledgments]);
+
+  // ---------------------------------------------------------------------------
+  // Handlers
+  // ---------------------------------------------------------------------------
 
   const toggleApprove = useCallback((fixId: string) => {
     setApprovedIds((prev) => {
@@ -260,6 +570,26 @@ export default function ReportPage() {
       return next;
     });
   }, []);
+
+  const handleAltTextChange = useCallback((figureIndexStr: string, text: string) => {
+    setCustomAltTexts((prev) => ({ ...prev, [figureIndexStr]: text }));
+  }, []);
+
+  const handleAcknowledge = useCallback((checkId: string, note: string) => {
+    setAcknowledgments((prev) => ({ ...prev, [checkId]: note }));
+  }, []);
+
+  const handleGenerateAltText = useCallback(async (checkId: string) => {
+    setGeneratingAltTextForCheck(checkId);
+    try {
+      const result = await generateAltText(sessionId, checkId);
+      setCustomAltTexts((prev) => ({ ...prev, ...result.alt_texts }));
+    } catch {
+      // Silent fail — user can retry
+    } finally {
+      setGeneratingAltTextForCheck(null);
+    }
+  }, [sessionId]);
 
   const autoFixableChecks = useMemo(() =>
     report?.checks.filter((c) => c.fix?.auto_fixable && c.status !== "pass") ?? [],
@@ -278,13 +608,42 @@ export default function ReportPage() {
     setRemediating(true);
     setRemediateError(null);
     try {
-      const resp = await remediatePdf(sessionId, Array.from(approvedIds));
+      const resp = await remediatePdf(
+        sessionId,
+        Array.from(approvedIds),
+        customAltTexts,
+        acknowledgments
+      );
       setChangesMade(resp.changes_made);
       setDownloadReady(true);
     } catch (e: unknown) {
       setRemediateError(e instanceof Error ? e.message : "Remediation failed.");
     } finally {
       setRemediating(false);
+    }
+  };
+
+  const handleReanalyze = async () => {
+    setReanalyzing(true);
+    try {
+      const result = await reanalyze(sessionId);
+      setReanalysisResult(result);
+      // Update the report with the new one
+      setReport(result.new_report);
+    } catch {
+      // Silent fail
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard not available
     }
   };
 
@@ -366,7 +725,7 @@ export default function ReportPage() {
             </h2>
 
             {/* Stat row */}
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3 mb-4">
               {[
                 { label: "Passed", count: summary.passed, color: "bg-emerald-100 text-emerald-700" },
                 { label: "Failed", count: summary.failed, color: "bg-red-100 text-red-700" },
@@ -378,6 +737,35 @@ export default function ReportPage() {
                   <span>{s.label}</span>
                 </div>
               ))}
+            </div>
+
+            {/* Action buttons row */}
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleCopyLink}
+                className={cx(
+                  "inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg border transition-all",
+                  copied
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                    : "bg-white border-slate-300 text-slate-600 hover:border-indigo-400 hover:text-indigo-600"
+                )}
+              >
+                {copied ? (
+                  <><Check className="w-3.5 h-3.5" /> Copied!</>
+                ) : (
+                  <><Link2 className="w-3.5 h-3.5" /> Copy Link</>
+                )}
+              </button>
+
+              <a
+                href={exportHtmlReportUrl(sessionId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                download
+                className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 hover:border-indigo-400 hover:text-indigo-600 transition-all"
+              >
+                <Download className="w-3.5 h-3.5" /> Export Report
+              </a>
             </div>
 
             {report.is_scanned && (
@@ -408,13 +796,68 @@ export default function ReportPage() {
                 ))}
               </ul>
             </div>
-            <a
-              href={downloadUrl(sessionId)}
-              download
-              className="flex-shrink-0 inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
-            >
-              <Download className="w-4 h-4" /> Download PDF
-            </a>
+            <div className="flex flex-col gap-2 flex-shrink-0">
+              <a
+                href={downloadUrl(sessionId)}
+                download
+                className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
+              >
+                <Download className="w-4 h-4" /> Download PDF
+              </a>
+              <button
+                onClick={handleReanalyze}
+                disabled={reanalyzing}
+                className={cx(
+                  "inline-flex items-center justify-center gap-2 font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm text-sm",
+                  reanalyzing
+                    ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                    : "bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                )}
+              >
+                {reanalyzing ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Re-analyzing…</>
+                ) : (
+                  <><RefreshCw className="w-4 h-4" /> Re-analyze to Confirm Fixes</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* Re-analysis Result Card                                      */}
+      {/* ============================================================ */}
+      {reanalysisResult && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 mb-6">
+          <h3 className="font-bold text-slate-900 text-base mb-4 flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-indigo-500" />
+            Re-analysis Results
+          </h3>
+          <div className="flex flex-col sm:flex-row items-center gap-6">
+            <div className="flex items-center gap-6">
+              <div className="text-center">
+                <ScoreCircle score={reanalysisResult.score_before} grade="" size="sm" />
+                <p className="text-xs text-slate-500 mt-2">Before</p>
+              </div>
+              <div className="text-2xl text-slate-300 font-light">→</div>
+              <div className="text-center">
+                <ScoreCircle score={reanalysisResult.score_after} grade="" size="sm" />
+                <p className="text-xs text-slate-500 mt-2">After</p>
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-800">
+                {reanalysisResult.score_after > reanalysisResult.score_before
+                  ? `Score improved from ${reanalysisResult.score_before} to ${reanalysisResult.score_after}`
+                  : reanalysisResult.score_after === reanalysisResult.score_before
+                  ? "No change in score"
+                  : `Score changed from ${reanalysisResult.score_before} to ${reanalysisResult.score_after}`}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Download the report to see the full updated analysis.
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -510,6 +953,13 @@ export default function ReportPage() {
             check={check}
             approved={!!check.fix && approvedIds.has(check.fix.id)}
             onToggleApprove={toggleApprove}
+            customAltTexts={customAltTexts}
+            onAltTextChange={handleAltTextChange}
+            acknowledgments={acknowledgments}
+            onAcknowledge={handleAcknowledge}
+            settings={settings}
+            generatingAltTextForCheck={generatingAltTextForCheck}
+            onGenerateAltText={handleGenerateAltText}
           />
         ))}
       </div>

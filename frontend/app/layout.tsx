@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import "./globals.css";
+import SettingsButton from "@/components/SettingsButton";
 
 export const metadata: Metadata = {
   title: "ADA PDF Analyzer",
@@ -21,6 +23,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <h1 className="text-lg font-bold text-slate-900 leading-tight">ADA PDF Analyzer</h1>
               <p className="text-xs text-slate-500 leading-tight">WCAG 2.1 · PDF/UA Accessibility Checker</p>
             </div>
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* History link */}
+            <Link
+              href="/history"
+              className="text-sm text-slate-500 hover:text-indigo-600 transition-colors font-medium"
+            >
+              History
+            </Link>
+
+            {/* Settings button */}
+            <SettingsButton />
           </div>
         </header>
         <main className="flex-1">{children}</main>

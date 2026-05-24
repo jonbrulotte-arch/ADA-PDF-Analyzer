@@ -164,14 +164,20 @@ def _apply_bookmarks(pdf: pikepdf.Pdf, input_path: str, output_path: str, fix_da
     return f"Added {len(toc)} bookmark(s) to document.", output_path
 
 
-def apply_fixes(report: AccessibilityReport, approved_fix_ids: list[str], input_path: str, output_path: str) -> list[str]:
+def apply_fixes(
+    report: AccessibilityReport,
+    approved_fix_ids: list[str],
+    input_path: str,
+    output_path: str,
+    custom_alt_texts: dict[str, str] | None = None,
+) -> list[str]:
     """Apply all approved fixes and write the remediated PDF. Returns list of human-readable changes."""
     id_set = set(approved_fix_ids)
     fixes_by_type: dict[FixType, tuple] = {}
 
     for check in report.checks:
         if check.fix and check.fix.id in id_set:
-            fixes_by_type[check.fix.fix_type] = (check.fix.fix_type, check.fix.fix_data)
+            fixes_by_type[check.fix.fix_type] = (check.fix.fix_type, dict(check.fix.fix_data))
 
     if not fixes_by_type:
         import shutil
@@ -190,6 +196,14 @@ def apply_fixes(report: AccessibilityReport, approved_fix_ids: list[str], input_
             elif fix_type == FixType.METADATA_LANGUAGE:
                 changes.append(_apply_language(pdf, fix_data["language"]))
             elif fix_type == FixType.ALT_TEXT:
+                # Merge custom_alt_texts over the placeholder alt_texts from fix_data
+                if custom_alt_texts:
+                    merged = dict(fix_data.get("alt_texts", {}))
+                    # custom_alt_texts keys are string figure indices; merge directly
+                    for k, v in custom_alt_texts.items():
+                        merged[str(k)] = v
+                    fix_data = dict(fix_data)
+                    fix_data["alt_texts"] = merged
                 changes.append(_apply_alt_texts(pdf, fix_data))
 
         if needs_bookmark_fix:

@@ -2,7 +2,8 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { uploadPdf } from "@/lib/api";
+import Link from "next/link";
+import { uploadPdf, batchUpload } from "@/lib/api";
 import {
   FileText,
   Upload,
@@ -10,6 +11,7 @@ import {
   AlertTriangle,
   Shield,
   Zap,
+  History,
 } from "lucide-react";
 
 export default function HomePage() {
@@ -19,17 +21,27 @@ export default function HomePage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFile = useCallback(
-    async (file: File) => {
-      if (!file.name.toLowerCase().endsWith(".pdf")) {
-        setError("Please select a PDF file.");
+  const handleFiles = useCallback(
+    async (files: File[]) => {
+      const pdfs = files.filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+      if (pdfs.length === 0) {
+        setError("Please select one or more PDF files.");
+        return;
+      }
+      if (pdfs.length !== files.length) {
+        setError("Only PDF files are accepted. Non-PDF files were ignored.");
         return;
       }
       setError(null);
       setUploading(true);
       try {
-        const resp = await uploadPdf(file);
-        router.push(`/report/${resp.session_id}`);
+        if (pdfs.length > 1) {
+          const resp = await batchUpload(pdfs);
+          router.push(`/batch/${resp.batch_id}`);
+        } else {
+          const resp = await uploadPdf(pdfs[0]);
+          router.push(`/report/${resp.session_id}`);
+        }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Upload failed. Please try again.");
         setUploading(false);
@@ -42,15 +54,17 @@ export default function HomePage() {
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
-      const file = e.dataTransfer.files?.[0];
-      if (file) handleFile(file);
+      const files = Array.from(e.dataTransfer.files ?? []);
+      if (files.length > 0) handleFiles(files);
     },
-    [handleFile]
+    [handleFiles]
   );
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) handleFiles(files);
+    // Reset input so the same files can be re-selected if needed
+    e.target.value = "";
   };
 
   return (
@@ -88,6 +102,7 @@ export default function HomePage() {
         <input
           ref={inputRef}
           type="file"
+          multiple
           accept=".pdf,application/pdf"
           className="hidden"
           onChange={onInputChange}
@@ -113,10 +128,10 @@ export default function HomePage() {
             </div>
             <div>
               <p className="text-lg font-semibold text-slate-700">
-                {dragging ? "Drop your PDF here" : "Drag & drop your PDF"}
+                {dragging ? "Drop your PDFs here" : "Drag & drop one or more PDFs"}
               </p>
               <p className="text-sm text-slate-400 mt-1">
-                or <span className="text-indigo-600 font-medium">click to browse</span> · up to 50 MB
+                or <span className="text-indigo-600 font-medium">click to browse</span> · up to 10 files · 50 MB each
               </p>
             </div>
           </div>
@@ -130,8 +145,19 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* History link */}
+      <div className="mt-4 text-center">
+        <Link
+          href="/history"
+          className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 transition-colors"
+        >
+          <History className="w-4 h-4" />
+          View History
+        </Link>
+      </div>
+
       {/* Feature Grid */}
-      <div className="grid sm:grid-cols-3 gap-4 mt-14">
+      <div className="grid sm:grid-cols-3 gap-4 mt-10">
         {[
           {
             icon: <FileText className="w-5 h-5 text-indigo-600" />,

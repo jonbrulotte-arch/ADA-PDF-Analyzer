@@ -62,3 +62,92 @@ export interface RemediateResponse {
   changes_made: string[];
   download_url: string;
 }
+
+export interface RemediateRequest {
+  approved_fix_ids: string[];
+  custom_alt_texts?: Record<string, string>;
+  acknowledgments?: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
+// Session State
+// ---------------------------------------------------------------------------
+
+export interface SessionState {
+  session_id: string;
+  approved_fix_ids: string[];
+  custom_alt_texts: Record<string, string>; // figure_index_str → alt text
+  acknowledgments: Record<string, string>;  // check_id → note
+  reanalysis_done: boolean;
+  score_before: number | null;
+  score_after: number | null;
+  updated_at: string;
+}
+
+export interface PatchStateRequest {
+  approved_fix_ids?: string[];
+  custom_alt_texts?: Record<string, string>;
+  acknowledgments?: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
+// App Settings
+// ---------------------------------------------------------------------------
+
+export interface AppSettings {
+  ai_alt_text_enabled: boolean;
+}
+
+export interface AppSettingsResponse extends AppSettings {
+  has_api_key: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Batch
+// ---------------------------------------------------------------------------
+
+export interface BatchSessionSummary {
+  session_id: string;
+  filename: string;
+  score: number;
+  grade: string;
+  page_count: number;
+  status: "done" | "error";
+  error?: string;
+}
+
+export interface BatchManifest {
+  batch_id: string;
+  created_at: string;
+  sessions: BatchSessionSummary[];
+}
+
+// ---------------------------------------------------------------------------
+// History
+// ---------------------------------------------------------------------------
+
+export interface HistoryEntry {
+  session_id: string;
+  filename: string;
+  score: number;
+  grade: string;
+  page_count: number;
+  file_size_kb: number;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// AI Alt Text & Re-analysis
+// ---------------------------------------------------------------------------
+
+export interface AltTextResponse {
+  check_id: string;
+  alt_texts: Record<string, string>;
+}
+
+export interface ReanalyzeResponse {
+  session_id: string;
+  score_before: number;
+  score_after: number;
+  new_report: AccessibilityReport;
+}
